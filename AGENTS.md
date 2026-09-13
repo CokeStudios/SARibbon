@@ -2,7 +2,7 @@
 
 ## 禁止事项
 
-- **禁止读取或修改** `src/SARibbon.cpp` 和 `src/SARibbon.h` — 这是 amalgamate 工具生成的合并文件，所有源码改动应在 `src/SARibbonBar/` 下进行
+- **禁止读取或修改** `src/SARibbon.cpp` 和 `src/SARibbon.h` — 这是 amalgamate 工具生成的合并文件，所有源码改动应在 `src/SARibbonBar/` 下进行，源码改动后，运行`tools/Amalgamate.sh`脚本即可自动更新`src/SARibbon.cpp` 和 `src/SARibbon.h`
 - **禁止** `slots`/`signals`/`emit` → 用 `Q_SLOTS`/`Q_SIGNALS`/`Q_EMIT`
 - **禁止** 头文件 public 函数加双语 Doxygen → 仅用单行英文 `///`
 - **禁止** Q_PROPERTY 上加任何注释（分组注释如 `// == Ribbon properties ==` 可以）
@@ -13,7 +13,7 @@
 
 ```
 src/SARibbonBar/          ← 所有源码（.h/.cpp），这是唯一应编辑的目录
-src/SARibbon.cpp/.h       ← ⛔ 合并文件，禁止触碰
+src/SARibbon.cpp/.h       ← ⛔ 合并文件，禁止触碰，调用 tools/Amalgamate.sh 自动生成
 src/SARibbonBar/colorWidgets/  ← SAColorWidgets 子模块（SAColorToolButton等）
 src/SARibbonBar/3rdparty/      ← 第三方代码
 src/SARibbonBar/i18n/          ← 翻译文件 (.ts/.qm)
@@ -154,19 +154,9 @@ PIMPL 注意：`d_ptr` 用 `std::unique_ptr`（非 QScopedPointer），PrivateDa
 - 信号发射：`Q_EMIT`（禁止 `emit`）
 - 槽可见性：`public Q_SLOTS`/`protected Q_SLOTS`/`private Q_SLOTS`
 
-## 格式化
+## Git 提交
 
-`.clang-format` 基于 WebKit 风格，4空格缩进，120字符行宽，指针靠左（`QWidget* p`），CRLF换行。**注意**：SARibbonAlignment枚举要求文件换行为CRLF，LF会导致编译错误。
-
-## Git 提交格式
-
-```
-修复：SARibbonCategory布局计算错误
-
-- 修复了在紧凑模式下面板高度计算不正确的问题
-- 相关文件：SARibbonCategory.cpp, SARibbonCategoryLayout.cpp
-- 关联计划：Ribbon布局优化计划
-```
+每次任务完成后，如果涉及代码/文档的改动，应该考虑是否提交git，如果需要提交，应按照 conventional commits 格式，用中文生成commits messages
 
 ## 开发规范文档（编码前必读）
 
