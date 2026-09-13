@@ -51,7 +51,8 @@ SARibbonWidget::SARibbonWidget(QWidget* parent) : QWidget(parent), d_ptr(new SAR
 	setRibbonBar(ribbon);
 	connect(qApp, &QApplication::primaryScreenChanged, this, &SARibbonWidget::onPrimaryScreenChanged);
 	SA_D(d);
-	if (SA::isOperatingSystemInDarkMode()
+	// 系统暗色模式自动切换，可通过 SA::setEnableSystemDarkModeAutoSwitch(false) 关闭
+	if (SA::isEnableSystemDarkModeAutoSwitch() && SA::isOperatingSystemInDarkMode()
 		&& d->mCurrentRibbonTheme == SARibbonTheme::RibbonThemeOffice2021Blue) {
 		d->mCurrentRibbonTheme = SARibbonTheme::RibbonThemeDark;
 	}

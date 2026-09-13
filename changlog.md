@@ -10,6 +10,7 @@
 - 修复：全仓库固化换行符策略，根治`core.autocrlf`引起的子模块假性修改。新增完整`.gitattributes`：文本文件入库统一归一化为LF，C++/Qt源码检出固定CRLF，`.sh`固定LF，`.bat`/`.cmd`固定CRLF，`.ts`沿用`eol=lf`策略，amalgamate合并文件（`src/SARibbon.cpp`、`src/SARibbon.h`）字节冻结，二进制资源显式标记；并对全仓库执行`git add --renormalize`（270个文件的换行符归一化，内容零变化）。此后任何`core.autocrlf`配置下、任何工具以任意换行重写文件，`git status`均不再产生换行符假性修改，以submodule引用本仓库的主仓库不再误报`modified content`
 - MainWindowExample：dock参数设置区新增"Large Button Min Width Ratio"数值框，可实时调整验证
 - 文档：`SARibbon-size-settings.md`（中英文）与`module-breakdown.md`补充新接口说明
+- 新增`SA::setEnableSystemDarkModeAutoSwitch`/`SA::isEnableSystemDarkModeAutoSwitch`（`SARibbonUtil.h`）：开闭/查询系统暗色模式触发的默认主题自动切换。此前`SARibbonMainWindow`/`SARibbonWidget`构造时若检测到系统处于暗色模式且主题为默认的`RibbonThemeOffice2021Blue`，会自动切换至`RibbonThemeDark`且无法关闭；现在不希望主题跟随系统颜色模式的应用可在构造任何窗口之前调用`SA::setEnableSystemDarkModeAutoSwitch(false)`全局关闭（开关默认开启保持既有行为，为进程级设置，显式的`setRibbonTheme()`调用不受影响）。新增单元测试`SARibbonThemeAutoSwitchTest`，文档（中英文`SARibbon-theme.md`、`faq.md`）同步补充说明
 
 ## 2026-08-31 -> 2.9.3
 

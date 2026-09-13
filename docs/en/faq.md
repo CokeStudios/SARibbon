@@ -3,6 +3,7 @@
 - ✅ **High-DPI adaptation**: covers Qt5/6 high-DPI scaling attributes and rounding policy configuration
 - ✅ **Global shortcut response**: resolves hidden-panel shortcut failures in Ribbon mode
 - ✅ **Theme timing**: workaround for themes not applying in constructors, see [Theme Switching](use-guide/SARibbon-theme.md)
+- ✅ **Dark mode auto-switch**: how to disable the automatic theme switch when the OS is in dark mode
 - ✅ **SVG icon dependency**: troubleshooting missing Qt SVG plugin at runtime
 - ✅ **Multi-monitor DPI jittering**: resolving window jump when dragging across monitors with different DPI scaling
 
@@ -170,3 +171,21 @@ When a window crosses a DPI boundary, Qt recalculates the logical size based on 
 
     !!! warning
         `Qt::AA_DontCreateNativeWidgetSiblings` is a global Qt attribute that affects the native widget creation behavior of all QWidgets. Set this attribute only when you actually need to embed a native HWND window.
+
+---
+
+## 7. How to Disable the Automatic Theme Switch in System Dark Mode
+
+The constructors of `SARibbonMainWindow` and `SARibbonWidget` detect the operating system color scheme: when the system is in dark mode and the theme is still the default `RibbonThemeOffice2021Blue`, it is automatically switched to `RibbonThemeDark`.
+
+To prevent the theme from following the system color scheme, call the following before constructing any window:
+
+```cpp
+#include "SARibbonUtil.h"
+
+SA::setEnableSystemDarkModeAutoSwitch(false);
+```
+
+The function is declared in the `SA` namespace in `SARibbonUtil.h` and is enabled by default. Once disabled, the default theme stays `RibbonThemeOffice2021Blue`, and explicit `setRibbonTheme()` calls keep working as usual.
+
+See [Theme Switching](use-guide/SARibbon-theme.md) for details.

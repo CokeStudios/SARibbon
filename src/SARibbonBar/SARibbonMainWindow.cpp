@@ -155,7 +155,8 @@ SARibbonMainWindow::SARibbonMainWindow(QWidget* parent, SARibbonMainWindowStyles
             d->installFrameless(this);
         }
         setRibbonBar(createRibbonBar());
-        if (SA::isOperatingSystemInDarkMode()
+        // 系统暗色模式自动切换，可通过 SA::setEnableSystemDarkModeAutoSwitch(false) 关闭
+        if (SA::isEnableSystemDarkModeAutoSwitch() && SA::isOperatingSystemInDarkMode()
             && d->mCurrentRibbonTheme == SARibbonTheme::RibbonThemeOffice2021Blue) {
             d->mCurrentRibbonTheme = SARibbonTheme::RibbonThemeDark;
         }

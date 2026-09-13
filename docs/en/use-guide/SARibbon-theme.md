@@ -37,7 +37,7 @@ enum class SARibbonTheme
 };
 ```
 
-`SARibbonTheme::RibbonThemeOffice2021Blue` is the **default** theme. When the operating system is in dark mode, the constructor automatically switches the default from `RibbonThemeOffice2021Blue` to `RibbonThemeDark` before the initial theme is applied.
+`SARibbonTheme::RibbonThemeOffice2021Blue` is the **default** theme. When the operating system is in dark mode, the constructor automatically switches the default from `RibbonThemeOffice2021Blue` to `RibbonThemeDark` before the initial theme is applied. To opt out of this behavior, call `SA::setEnableSystemDarkModeAutoSwitch(false)` before any window is constructed — see [Disabling the System Dark Mode Auto-Switch](#disabling-the-system-dark-mode-auto-switch).
 
 Apply a theme through  
 `SARibbonMainWindow::setRibbonTheme()` / `SARibbonWidget::setRibbonTheme()`:
@@ -117,6 +117,8 @@ If your application already applies its own style sheets, **merge** the Ribbon Q
 | `setRibbonTheme(SARibbonTheme)` | SARibbonMainWindow / SARibbonWidget | Set the Ribbon theme |
 | `ribbonTheme()` → `SARibbonTheme` | SARibbonMainWindow / SARibbonWidget | Get the current theme |
 | `Q_PROPERTY(ribbonTheme)` | SARibbonMainWindow / SARibbonWidget | Theme property, bindable via QSS or code |
+| `SA::setEnableSystemDarkModeAutoSwitch(bool)` | SA namespace (`SARibbonUtil.h`) | Enable/disable the default-theme auto-switch triggered by system dark mode (enabled by default) |
+| `SA::isEnableSystemDarkModeAutoSwitch()` | SA namespace (`SARibbonUtil.h`) | Query whether the system dark mode auto-switch is enabled |
 
 !!! note "SARibbonMainWindow vs SARibbonWidget"
     Both classes expose `setRibbonTheme()` and the `ribbonTheme` property, but there is a key behavioral difference. **SARibbonMainWindow** calls `bar->setContextCategoryColorHighLight()` per theme to adjust the context category title text highlight. **SARibbonWidget** does not call this method, which means the highlight function from the previous theme persists when switching themes.
@@ -160,6 +162,31 @@ void MainWindow::onThemeChanged(int index)
     }
 }
 ```
+
+## Disabling the System Dark Mode Auto-Switch
+
+The constructors of `SARibbonMainWindow` and `SARibbonWidget` detect the operating system color scheme: when the system is in dark mode and the theme is still the default `RibbonThemeOffice2021Blue`, it is automatically switched to `RibbonThemeDark`.
+
+If you do not want the theme to follow the system color scheme (for example, when your application provides its own theme setting), disable this globally by calling `SA::setEnableSystemDarkModeAutoSwitch(false)` before any window is constructed:
+
+```cpp
+#include "SARibbonUtil.h"
+
+int main(int argc, char* argv[])
+{
+    QApplication a(argc, argv);
+    // Disable the system dark mode auto-switch: the default theme stays RibbonThemeOffice2021Blue
+    SA::setEnableSystemDarkModeAutoSwitch(false);
+    MainWindow w;  // a SARibbonMainWindow subclass
+    w.show();
+    return a.exec();
+}
+```
+
+!!! note
+    - The switch is enabled by default, preserving the existing behavior
+    - It is a process-wide setting that only affects windows constructed after the call, so it must be called before constructing any window
+    - Explicit `setRibbonTheme()` calls are unaffected; themes can still be switched manually at any time
 
 ## QSS Merge Guide
 
@@ -315,6 +342,7 @@ When resolving a `{{token}}` placeholder, the palette searches in this order: **
 | `SA::getBuiltInRibbonThemeQss(SARibbonTheme)` | `SARibbonUtil.h` | Returns the fully resolved QSS string (base + template with default palette) |
 | `SA::applyRibbonTheme(w, bar, theme)` | `SARibbonThemeManager.h` | Applies a built-in theme using the default palette |
 | `SA::applyRibbonTheme(w, bar, theme, palette)` | `SARibbonThemeManager.h` | Applies a built-in theme with a custom palette (enables custom color variants) |
+| `SA::setEnableSystemDarkModeAutoSwitch(bool)` / `SA::isEnableSystemDarkModeAutoSwitch()` | `SARibbonUtil.h` | Enable/disable or query the automatic default-theme switching triggered by system dark mode |
 
 !!! example "Custom palette example"
     ```cpp

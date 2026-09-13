@@ -39,7 +39,9 @@ enum class SARibbonTheme
 !!! info "默认主题"
     `SARibbonTheme::RibbonThemeOffice2021Blue` 是 SARibbon 的默认主题，在 `SARibbonMainWindow` 和 `SARibbonWidget` 的 PrivateData 初始化器中显式设置。
 
-    当操作系统处于暗色模式（Dark Mode）且当前主题为 `RibbonThemeOffice2021Blue` 时，SARibbon 会自动切换至 `RibbonThemeDark`。该检测通过 `QTimer::singleShot(0)` 延迟执行，确保 `QApplication` 上下文完整可用。
+    当操作系统处于暗色模式（Dark Mode）且当前主题为 `RibbonThemeOffice2021Blue` 时，SARibbon 会自动切换至 `RibbonThemeDark`。检测在构造函数中完成，主题的兜底重应用通过 `QTimer::singleShot(0)` 延迟到事件循环启动后执行，确保 `QApplication` 上下文完整可用。
+
+    若不希望主题跟随系统颜色模式自动切换，可在构造窗口之前调用 `SA::setEnableSystemDarkModeAutoSwitch(false)` 关闭，详见 [关闭系统暗色模式自动切换](#关闭系统暗色模式自动切换)。
 
 通过`SARibbonMainWindow::setRibbonTheme`/`SARibbonWidget::setRibbonTheme`函数，可以设置Ribbon的主题，此函数的参数为`SARibbonTheme`对象
 
@@ -118,6 +120,8 @@ dark2主题：
 | `setRibbonTheme(SARibbonTheme)` | SARibbonMainWindow / SARibbonWidget | 设置Ribbon主题 |
 | `ribbonTheme()` → `SARibbonTheme` | SARibbonMainWindow / SARibbonWidget | 获取当前主题 |
 | `Q_PROPERTY(ribbonTheme)` | SARibbonMainWindow / SARibbonWidget | 主题属性，可通过QSS或代码绑定 |
+| `SA::setEnableSystemDarkModeAutoSwitch(bool)` | SA 命名空间（SARibbonUtil.h） | 开闭系统暗色模式触发的默认主题自动切换，默认开启 |
+| `SA::isEnableSystemDarkModeAutoSwitch()` | SA 命名空间（SARibbonUtil.h） | 查询系统暗色模式自动切换是否开启 |
 
 ### SARibbonWidget 说明
 
@@ -152,6 +156,31 @@ void MainWindow::onThemeChanged(int index)
     }
 }
 ```
+
+## 关闭系统暗色模式自动切换
+
+`SARibbonMainWindow` 和 `SARibbonWidget` 构造时会检测操作系统的颜色模式：若系统处于暗色模式且当前主题为默认的 `RibbonThemeOffice2021Blue`，将自动切换为 `RibbonThemeDark`。
+
+若不希望主题跟随系统颜色模式自动切换（例如程序自身提供主题配置），可在构造任何窗口之前调用 `SA::setEnableSystemDarkModeAutoSwitch(false)` 全局关闭：
+
+```cpp
+#include "SARibbonUtil.h"
+
+int main(int argc, char* argv[])
+{
+    QApplication a(argc, argv);
+    // 关闭系统暗色模式自动切换，默认主题不再被替换为 RibbonThemeDark
+    SA::setEnableSystemDarkModeAutoSwitch(false);
+    MainWindow w;  // SARibbonMainWindow 子类
+    w.show();
+    return a.exec();
+}
+```
+
+!!! note "说明"
+    - 该开关默认开启，保持既有行为不变
+    - 开关为进程级全局设置，只影响之后构造的 `SARibbonMainWindow` / `SARibbonWidget`，因此必须在构造窗口之前调用
+    - 显式的 `setRibbonTheme()` 调用不受此开关影响，仍可随时手动切换任意主题
 
 ## QSS合并说明
 
@@ -311,6 +340,7 @@ SARibbonBar {
 | `SA::getBuiltInRibbonThemeQss(SARibbonTheme)` | `SARibbonUtil.h` | 返回完全解析的 QSS 字符串（基础 + 模板 + 默认调色板） |
 | `SA::applyRibbonTheme(w, bar, theme)` | `SARibbonThemeManager.h` | 使用默认调色板应用内置主题 |
 | `SA::applyRibbonTheme(w, bar, theme, palette)` | `SARibbonThemeManager.h` | 使用自定义调色板应用内置主题（支持自定义颜色变体） |
+| `SA::setEnableSystemDarkModeAutoSwitch(bool)` / `SA::isEnableSystemDarkModeAutoSwitch()` | `SARibbonUtil.h` | 开闭/查询系统暗色模式触发的默认主题自动切换 |
 
 !!! example "自定义调色板示例"
     ```cpp

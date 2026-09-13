@@ -1363,6 +1363,12 @@ int SA_RIBBON_EXPORT saMirrorX(int x, int containerWidth, int elementWidth);
 // Check if the operating system uses dark mode (cross-platform)
 bool SA_RIBBON_EXPORT isOperatingSystemInDarkMode();
 
+// Enable or disable automatic switching from the default theme to RibbonThemeDark when the operating system is in dark mode (enabled by default)
+void SA_RIBBON_EXPORT setEnableSystemDarkModeAutoSwitch(bool on);
+
+// Query whether automatic theme switching by operating system dark mode is enabled
+bool SA_RIBBON_EXPORT isEnableSystemDarkModeAutoSwitch();
+
 // Forward declaration
 class SARibbonThemePalette;
 

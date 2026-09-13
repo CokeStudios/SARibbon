@@ -3,6 +3,7 @@
 - ✅ **高分屏适配**：涵盖 Qt5/6 高 DPI 缩放属性与缩放策略配置
 - ✅ **快捷键全局响应**：解决 Ribbon 模式下隐藏面板快捷键失效的问题
 - ✅ **主题设置时机**：构造函数中主题不生效的解决方案，详见 [主题切换](./use-guide/SARibbon-theme.md)
+- ✅ **暗色模式自动切换**：关闭主题跟随系统颜色模式自动切换的方法
 - ✅ **SVG图标依赖**：运行环境缺少 Qt SVG 插件时的排查方法
 - ✅ **多屏不同 DPI 跨屏抖动**：多显示器缩放比例不同时窗口拖动抖动的排查与解决
 
@@ -157,3 +158,19 @@ SARibbonBar_amalgamate
 
     !!! warning
         `Qt::AA_DontCreateNativeWidgetSiblings` 是 Qt 的全局属性，会影响所有 QWidget 的原生窗口创建行为。仅在确实需要嵌入原生 HWND 窗口时才设置此属性。
+
+## 7、如何关闭系统暗色模式下的自动主题切换
+
+`SARibbonMainWindow` 和 `SARibbonWidget` 构造时会检测操作系统的颜色模式：若系统处于暗色模式且当前主题为默认的 `RibbonThemeOffice2021Blue`，会自动切换为 `RibbonThemeDark`。
+
+若不希望主题跟随系统颜色模式自动切换，在构造任何窗口之前调用：
+
+```cpp
+#include "SARibbonUtil.h"
+
+SA::setEnableSystemDarkModeAutoSwitch(false);
+```
+
+该接口声明于 `SARibbonUtil.h` 的 `SA` 命名空间，默认开启。关闭后默认主题保持 `RibbonThemeOffice2021Blue`，显式的 `setRibbonTheme()` 调用不受影响。
+
+详细说明参见 [主题切换](./use-guide/SARibbon-theme.md)。

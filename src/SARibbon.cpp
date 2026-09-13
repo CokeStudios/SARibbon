@@ -6149,6 +6149,63 @@ bool isOperatingSystemInDarkMode()
 }
 
 /**
+ * @brief 系统暗色模式自动切换开关的存储
+ *
+ * 使用函数内静态变量而非全局静态变量，避免静态初始化顺序问题
+ * @return 开关变量的引用
+ */
+static bool& systemDarkModeAutoSwitchFlag()
+{
+	static bool enable = true;
+	return enable;
+}
+
+/**
+ * \if ENGLISH
+ * @brief Enable or disable automatic theme switching by system dark mode
+ * @details SARibbonMainWindow and SARibbonWidget check the operating system color scheme
+ * during construction: when the system is in dark mode and the theme is still the default
+ * RibbonThemeOffice2021Blue, the theme is automatically switched to RibbonThemeDark.
+ * Call this function with @c false before constructing the window to keep the default
+ * theme regardless of the system color scheme.
+ * @param on true to enable the automatic switching (default), false to disable it
+ * @sa isEnableSystemDarkModeAutoSwitch()
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 开启或关闭系统暗色模式触发的自动主题切换
+ * @details SARibbonMainWindow 和 SARibbonWidget 在构造时会检测操作系统的颜色模式：
+ * 当系统处于暗色模式且主题仍为默认的 RibbonThemeOffice2021Blue 时，会自动把主题切换为
+ * RibbonThemeDark。若不希望此行为，可在构造窗口之前调用本函数并传入 @c false，
+ * 此后无论系统处于何种颜色模式，默认主题都保持 RibbonThemeOffice2021Blue 不变。
+ * @param on true 开启自动切换（默认），false 关闭自动切换
+ * @sa isEnableSystemDarkModeAutoSwitch()
+ * \endif
+ */
+void setEnableSystemDarkModeAutoSwitch(bool on)
+{
+	systemDarkModeAutoSwitchFlag() = on;
+}
+
+/**
+ * \if ENGLISH
+ * @brief Query whether automatic theme switching by system dark mode is enabled
+ * @return true if the automatic switching is enabled (default), false otherwise
+ * @sa setEnableSystemDarkModeAutoSwitch()
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 查询系统暗色模式触发的自动主题切换是否处于开启状态
+ * @return 开启返回true（默认），关闭返回false
+ * @sa setEnableSystemDarkModeAutoSwitch()
+ * \endif
+ */
+bool isEnableSystemDarkModeAutoSwitch()
+{
+	return systemDarkModeAutoSwitchFlag();
+}
+
+/**
  * @brief Replace {{token}} and {{token|opacity(value)}} patterns in QSS templates with actual color values
  * @param templateQss The QSS template string containing tokens
  * @param palette The theme palette providing color values
@@ -33133,7 +33190,8 @@ SARibbonMainWindow::SARibbonMainWindow(QWidget* parent, SARibbonMainWindowStyles
 			d->installFrameless(this);
 		}
 		setRibbonBar(createRibbonBar());
-		if (SA::isOperatingSystemInDarkMode()
+		// 系统暗色模式自动切换，可通过 SA::setEnableSystemDarkModeAutoSwitch(false) 关闭
+		if (SA::isEnableSystemDarkModeAutoSwitch() && SA::isOperatingSystemInDarkMode()
 			&& d->mCurrentRibbonTheme == SARibbonTheme::RibbonThemeOffice2021Blue) {
 			d->mCurrentRibbonTheme = SARibbonTheme::RibbonThemeDark;
 		}
@@ -33669,7 +33727,8 @@ SARibbonWidget::SARibbonWidget(QWidget* parent) : QWidget(parent), d_ptr(new SAR
 	setRibbonBar(ribbon);
 	connect(qApp, &QApplication::primaryScreenChanged, this, &SARibbonWidget::onPrimaryScreenChanged);
 	SA_D(d);
-	if (SA::isOperatingSystemInDarkMode()
+	// 系统暗色模式自动切换，可通过 SA::setEnableSystemDarkModeAutoSwitch(false) 关闭
+	if (SA::isEnableSystemDarkModeAutoSwitch() && SA::isOperatingSystemInDarkMode()
 		&& d->mCurrentRibbonTheme == SARibbonTheme::RibbonThemeOffice2021Blue) {
 		d->mCurrentRibbonTheme = SARibbonTheme::RibbonThemeDark;
 	}
