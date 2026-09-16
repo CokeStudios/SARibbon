@@ -1,4 +1,6 @@
-﻿// SARibbonTitleIconWidget.cpp
+﻿/*
+ * SARibbonTitleIconWidget.cpp
+ */
 #include "SARibbonTitleIconWidget.h"
 #include <QPainter>
 #include <QMouseEvent>
@@ -9,6 +11,9 @@
 #include <QWindow>
 #include <QAction>
 #include <QDebug>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 /**
  * @brief SARibbonTitleIconWidget::SARibbonTitleIconWidget
  * 构造函数，初始化标题栏图标控件
@@ -163,13 +168,21 @@ void SARibbonTitleIconWidget::setupMenuActions()
     restoreAction->setIcon(style()->standardIcon(QStyle::SP_TitleBarNormalButton));
     connect(restoreAction, &QAction::triggered, this, &SARibbonTitleIconWidget::onRestore);
 
-    // 移动菜单项
+    // 移动菜单项（仅 Windows 支持：进入系统级键盘移动模式）
     QAction* moveAction = new QAction(tr("Move(M)"), this);  // cn:移动
     connect(moveAction, &QAction::triggered, this, &SARibbonTitleIconWidget::onMove);
+#ifndef Q_OS_WIN
+    moveAction->setEnabled(false);
+    moveAction->setToolTip(tr("Not supported on this platform"));
+#endif
 
-    // 大小菜单项
+    // 大小菜单项（仅 Windows 支持：进入系统级键盘缩放模式）
     QAction* sizeAction = new QAction(tr("Size(S)"), this);  // cn:大小
     connect(sizeAction, &QAction::triggered, this, &SARibbonTitleIconWidget::onSize);
+#ifndef Q_OS_WIN
+    sizeAction->setEnabled(false);
+    sizeAction->setToolTip(tr("Not supported on this platform"));
+#endif
 
     // 最小化菜单项
     QAction* minimizeAction = new QAction(tr("Minimize(N)"), this);  // cn:最小化
@@ -210,26 +223,50 @@ void SARibbonTitleIconWidget::onRestore()
 
 /**
  * @brief SARibbonTitleIconWidget::onMove
- * 启动窗口移动模式
+ * 进入系统级键盘移动模式
+ * @note Windows 上通过 WM_SYSCOMMAND(SC_MOVE | 键盘触发标志) 让系统接管，
+ * 之后可用方向键移动窗口，鼠标点击或回车退出；最大化状态下先还原再移动
  */
 void SARibbonTitleIconWidget::onMove()
 {
     if (m_widget) {
-        // 在实际应用中，这里可以触发窗口移动逻辑
-        // 或者通过其他方式实现移动功能
+        if (m_widget->isMaximized() || m_widget->isFullScreen()) {
+            // 最大化/全屏状态下系统不允许移动，先还原
+            m_widget->showNormal();
+            QApplication::processEvents();
+        }
+#ifdef Q_OS_WIN
+        if (WId hwnd = m_widget->winId()) {
+            // 0x0002 是键盘触发标志（同 WM_SYSCOMMAND 的 SC_MOUSEMENU 约定），
+            // 不带此标志系统会按鼠标当前位置立即开始移动
+            ::SendMessage(reinterpret_cast< HWND >(hwnd), WM_SYSCOMMAND, SC_MOVE | 0x0002, 0);
+            return;
+        }
+#endif
         m_widget->setFocus();
     }
 }
 
 /**
  * @brief SARibbonTitleIconWidget::onSize
- * 启动窗口大小调整模式
+ * 进入系统级键盘缩放模式
+ * @note Windows 上通过 WM_SYSCOMMAND(SC_SIZE | 键盘触发标志) 让系统接管，
+ * 之后可用方向键调整窗口尺寸，鼠标点击或回车退出；最大化状态下先还原
  */
 void SARibbonTitleIconWidget::onSize()
 {
     if (m_widget) {
-        // 在实际应用中，这里可以触发窗口大小调整逻辑
-        // 或者通过其他方式实现大小调整功能
+        if (m_widget->isMaximized() || m_widget->isFullScreen()) {
+            // 最大化/全屏状态下系统不允许调整尺寸，先还原
+            m_widget->showNormal();
+            QApplication::processEvents();
+        }
+#ifdef Q_OS_WIN
+        if (WId hwnd = m_widget->winId()) {
+            ::SendMessage(reinterpret_cast< HWND >(hwnd), WM_SYSCOMMAND, SC_SIZE | 0x0002, 0);
+            return;
+        }
+#endif
         m_widget->setFocus();
     }
 }

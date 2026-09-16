@@ -156,3 +156,14 @@ MainWindow::MainWindow(QWidget* parent)
 
 !!! tip "Note"
     Title bar settings are only visible in Loose mode. In Compact mode, the title bar and tab bar are merged, so title bar background color settings will not have a noticeable effect, but text color still takes effect.
+## Title Bar Icon System Menu
+
+In frameless mode (`UseRibbonFrame`), clicking (or right-clicking) the application icon at the top-left of the title bar opens the system menu: Restore / Move / Size / Minimize / Maximize / Close.
+
+- **Move (M)**: enters the system-level keyboard move mode — use arrow keys to move the window, Enter to confirm, Esc to cancel (same as the native Windows system menu);
+- **Size (S)**: enters the system-level keyboard resize mode — use arrow keys to resize the window, Enter to confirm, Esc to cancel;
+- if the window is maximized/fullscreen, Move/Size first restores it to normal state;
+- these two items are available on Windows; on other platforms they are explicitly disabled in the menu (no dead menu entries).
+
+!!! note
+    This menu is only available in frameless mode (`UseRibbonFrame`) — in native frame mode (`UseNativeFrame`) the system menu is provided by the OS and the title icon is hidden.
