@@ -199,3 +199,25 @@ setFrameBorderColor(QColor(Qt::red)); // 可选：自定义颜色；传入无效
 - **QWK 路径差异**：启用 QWindowKit（`SARIBBON_USE_FRAMELESS_LIB=ON`）时窗口由 QWK 的原生 frame 机制处理，自绘边框可能被系统 frame 覆盖，建议该路径下依赖 QWK 的边框能力。
 
 运行 `example/MainWindowExample` 的 **other** 标签页 **style** 面板 "window frame border" 开关可实时验证。
+
+## 拖动标题栏贴边半屏 / 最大化
+
+无边框模式（`UseRibbonFrame`）下，拖动 ribbon 标题栏触发系统的贴边（Aero Snap）行为：
+
+- 拖到屏幕**左/右边缘** → 出现半屏预览，松手落地为左/右半屏；
+- 拖到屏幕**顶部** → 出现最大化预览，松手最大化；
+- 从贴边状态**拖离** → 还原为普通窗口；
+- 最大化状态下拖动标题栏会先还原再移动（与 Office / 浏览器一致）。
+
+标题栏上的系统按钮、快速访问工具栏、上下文页签、应用按钮、标题图标**不受影响**，仍然正常响应点击。
+
+### 两种边框模式的差异
+
+| 模式 | 贴边行为 |
+|------|---------|
+| `UseRibbonFrame`（默认无边框） | 由 SARibbon 把标题栏拖拽委托给系统原生消息（Windows），系统提供贴边/半屏/最大化预览；非 Windows 平台保持纯 Qt 拖拽行为（无贴边） |
+| `UseNativeFrame`（原生边框） | 系统原生边框自带完整 Snap 行为，无需配置 |
+
+### Win11 Snap Layout 弹出
+
+Windows 11 的 Snap Layout 弹出层（鼠标悬停最大化按钮出现的分屏布局选择）需要 QWindowKit 路径（`SARIBBON_USE_FRAMELESS_LIB=ON` 并启用 `SARIBBON_ENABLE_SNAPLAYOUT`）；默认路径只提供拖拽贴边，不提供悬停弹出层。

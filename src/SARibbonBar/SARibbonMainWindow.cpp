@@ -25,6 +25,13 @@
 #include "SARibbonStackedWidget.h"
 #else
 #include "SAFramelessHelper.h"
+#include "SARibbonButtonGroupWidget.h"
+#include "SARibbonQuickAccessBar.h"
+#include "SARibbonTabBar.h"
+#endif
+#if defined(Q_OS_WIN) && !SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
+#include <windows.h>
+#include <windowsx.h>
 #endif
 
 /**
@@ -61,6 +68,43 @@ QString mainWindowThemePalettePath(SARibbonTheme theme)
     }
 }
 }  // namespace
+
+namespace SA {
+/**
+ * \if ENGLISH
+ * @brief Title-bar draggable area hit test for the Windows non-QWK frameless path
+ * \endif
+ *
+ * \if CHINESE
+ * @brief Windows 非 QWK 无边框路径的标题栏可拖拽区命中测试
+ * \endif
+ */
+bool isTitleBarDragArea(const QPoint& localPos,
+                        const QRect& windowRect,
+                        int titleHeight,
+                        const QList< QRect >& excludedRects,
+                        bool maximizedOrFullscreen)
+{
+    if (maximizedOrFullscreen) {
+        // 最大化/全屏时不返回 HTCAPTION，避免"最大化状态下拖动窗口"的怪异行为
+        return false;
+    }
+    if (titleHeight <= 0 || !windowRect.contains(localPos)) {
+        return false;
+    }
+    const QRect titleBarRect(windowRect.left(), windowRect.top(), windowRect.width(), titleHeight);
+    if (!titleBarRect.contains(localPos)) {
+        return false;
+    }
+    // 排除可点击控件区域（系统按钮、快速访问栏、tab 栏、应用按钮等）
+    for (const QRect& r : excludedRects) {
+        if (r.isValid() && r.contains(localPos)) {
+            return false;
+        }
+    }
+    return true;
+}
+}  // namespace SA
 
 class SARibbonMainWindow::PrivateData
 {
@@ -697,6 +741,76 @@ void SARibbonMainWindow::paintEvent(QPaintEvent* e)
     }
     QMainWindow::paintEvent(e);
 }
+
+#if defined(Q_OS_WIN) && !SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
+/**
+ * \if ENGLISH
+ * @brief Windows non-QWK path: returns HTCAPTION for the title bar draggable area
+ * @param eventType Native event type name
+ * @param message Native message (MSG on Windows)
+ * @param result Output: the native hit test result to return
+ * @return true if the message is consumed
+ * @details Returning HTCAPTION lets Windows take over the title bar drag loop, which provides
+ *          the system Aero Snap behavior (drag to left/right screen edge shows the half-screen
+ *          preview, drag to the top shows the maximize preview). Interactive child widgets
+ *          (system buttons, quick access bar, right button group, application button, tab bar,
+ *          title icon) are excluded so they keep receiving mouse events. Measured on Qt 5.15:
+ *          QWidget::nativeEvent() receives WM_NCHITTEST (unlike the global native event filter,
+ *          which only sees non-input messages).
+ * \endif
+ *
+ * \if CHINESE
+ * @brief Windows 非 QWK 路径：标题栏可拖拽区返回 HTCAPTION
+ * @param eventType 原生事件类型名
+ * @param message 原生消息（Windows 上为 MSG）
+ * @param result 输出：返回给系统的命中测试结果
+ * @return true 表示消息已消费
+ * @details 返回 HTCAPTION 后 Windows 接管标题栏拖拽循环，系统免费提供 Aero Snap
+ *          （拖到屏幕左/右边缘出半屏预览、拖到顶部出最大化预览）。可交互子控件
+ *          （系统按钮、快速访问栏、右侧按钮组、应用按钮、tab 栏、标题图标）被排除，
+ *          保持正常接收鼠标事件。Qt 5.15 实测：QWidget::nativeEvent() 能收到
+ *          WM_NCHITTEST（全局原生事件过滤器只看得到非输入消息，local filter 无此限制）
+ * \endif
+ */
+bool SARibbonMainWindow::nativeEvent(const QByteArray& eventType, void* message, long* result)
+{
+    if (eventType == "windows_generic_MSG" && message) {
+        MSG* msg = static_cast< MSG* >(message);
+        if (msg->message == WM_NCHITTEST) {
+            // lParam 是屏幕物理坐标：ScreenToClient 转为窗口本地物理坐标，
+            // 再除以 devicePixelRatioF 得到本地逻辑坐标（Qt 的逻辑↔物理映射关系）
+            POINT pt = { GET_X_LPARAM(msg->lParam), GET_Y_LPARAM(msg->lParam) };
+            ::ScreenToClient(msg->hwnd, &pt);
+            const qreal dpr = devicePixelRatioF();
+            const QPoint localLogical(qRound(pt.x / dpr), qRound(pt.y / dpr));
+            // 收集需要保持可点击的控件区域（语义同 QWK 路径的 setHitTestVisible 清单）
+            QList< QRect > excluded;
+            SARibbonBar* rb = ribbonBar();
+            const QWidget* candidates[] = {
+                qobject_cast< QWidget* >(d_ptr->mWindowButtonGroup),
+                rb ? qobject_cast< QWidget* >(rb->quickAccessBar()) : nullptr,
+                rb ? qobject_cast< QWidget* >(rb->rightButtonGroup()) : nullptr,
+                rb ? qobject_cast< QWidget* >(rb->applicationButton()) : nullptr,
+                rb ? qobject_cast< QWidget* >(rb->titleIconWidget()) : nullptr,
+                rb ? qobject_cast< QWidget* >(rb->ribbonTabBar()) : nullptr
+            };
+            for (const QWidget* w : candidates) {
+                if (w && w->isVisible()) {
+                    excluded.append(QRect(mapFromGlobal(w->mapToGlobal(QPoint(0, 0))),
+                                          w->rect().size()));
+                }
+            }
+            const int titleHeight = ribbonBar() ? ribbonBar()->titleBarHeight() : 0;
+            if (SA::isTitleBarDragArea(localLogical, rect(), titleHeight, excluded,
+                                       isMaximized() || isFullScreen())) {
+                *result = HTCAPTION;
+                return true;
+            }
+        }
+    }
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+#endif
 
 /**
  * \if ENGLISH

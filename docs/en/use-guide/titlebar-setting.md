@@ -184,3 +184,25 @@ setFrameBorderColor(QColor(Qt::red)); // optional: custom color; pass an invalid
 - **QWK path difference**: with QWindowKit enabled (`SARIBBON_USE_FRAMELESS_LIB=ON`) the window is handled by QWK's native frame mechanism and the self-drawn border may be covered by the system frame; prefer QWK's border capability on that path.
 
 Run the "window frame border" toggle in the **style** panel of the **other** tab in `example/MainWindowExample` to verify in real time.
+
+## Dragging the Title Bar to Screen Edges (Half-Screen / Maximize)
+
+In frameless mode (`UseRibbonFrame`), dragging the ribbon title bar triggers the system snap (Aero Snap) behavior:
+
+- drag to the **left/right** screen edge → half-screen preview appears, release to dock to that half;
+- drag to the **top** → maximize preview appears, release to maximize;
+- drag **away** from a docked state → restores to a normal window;
+- dragging the title bar of a maximized window restores it first, then moves (same as Office / browsers).
+
+Interactive widgets on the title bar — system buttons, the quick access bar, context tabs, the application button, the title icon — are unaffected and keep responding to clicks.
+
+### Differences Between the Two Frame Modes
+
+| Mode | Snap behavior |
+|-------|---------------|
+| `UseRibbonFrame` (default frameless) | SARibbon delegates the title bar drag to the native system message (Windows); the system provides the snap/half-screen/maximize previews. Non-Windows platforms keep the pure-Qt drag behavior (no snapping) |
+| `UseNativeFrame` (native frame) | the system native frame provides the full Snap behavior out of the box |
+
+### Win11 Snap Layout Flyout
+
+The Windows 11 Snap Layout flyout (the layout picker shown when hovering the maximize button) requires the QWindowKit path (`SARIBBON_USE_FRAMELESS_LIB=ON` plus `SARIBBON_ENABLE_SNAPLAYOUT`); the default path only provides drag snapping, not the hover flyout.

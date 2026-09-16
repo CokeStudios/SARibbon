@@ -2,6 +2,9 @@
 #define SARIBBONMAINWINDOW_H
 #include "SARibbonGlobal.h"
 #include <QMainWindow>
+#include <QList>
+#include <QPoint>
+#include <QRect>
 
 #if !SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
 class SAFramelessHelper;
@@ -11,6 +14,23 @@ class SARibbonBar;
 class SARibbonSystemButtonBar;
 class QScreen;
 class QColor;
+
+namespace SA {
+// Title-bar hit test for the Windows non-QWK frameless path (issue #31): returns true when the
+// given point (in the window's local logical coordinates) falls into the draggable title bar area.
+// Pure function, exported for unit testing. Parameters:
+//   - localPos: pointer position in the main window's local logical coordinates
+//   - windowRect: the main window's geometry (logical)
+//   - titleHeight: title bar height in logical pixels
+//   - excludedRects: global-exclusion candidate widget rects, mapped into the window's local
+//     logical coordinates (system buttons, quick access bar, tab bar, application button, ...)
+//   - maximizedOrFullscreen: no HTCAPTION when the window is maximized or fullscreen
+bool SA_RIBBON_EXPORT isTitleBarDragArea(const QPoint& localPos,
+                                         const QRect& windowRect,
+                                         int titleHeight,
+                                         const QList<QRect>& excludedRects,
+                                         bool maximizedOrFullscreen);
+}
 /**
  * \if ENGLISH
  * @brief Must use this class instead of QMainWindow to use SARibbonBar
@@ -146,6 +166,11 @@ protected:
     SARibbonBar* createRibbonBar();
     // Draw the optional 1px frame border when frameBorderEnabled is on
     virtual void paintEvent(QPaintEvent* e) Q_DECL_OVERRIDE;
+#if defined(Q_OS_WIN) && !SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
+    // Windows non-QWK path: return HTCAPTION for the title bar draggable area so that the
+    // system takes over title bar dragging and provides Aero Snap (half-screen/maximize)
+    virtual bool nativeEvent(const QByteArray& eventType, void* message, long* result) Q_DECL_OVERRIDE;
+#endif
 private Q_SLOTS:
     // Handle primary screen changed event
     void onPrimaryScreenChanged(QScreen* screen);
