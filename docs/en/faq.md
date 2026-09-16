@@ -170,3 +170,36 @@ When a window crosses a DPI boundary, Qt recalculates the logical size based on 
 
     !!! warning
         `Qt::AA_DontCreateNativeWidgetSiblings` is a global Qt attribute that affects the native widget creation behavior of all QWidgets. Set this attribute only when you actually need to embed a native HWND window.
+---
+
+## 7. Embedded Native Render Windows (e.g. Qt3DWindow) Start at an Offset Position
+
+When embedding a Qt3D render window (or other native QWindow) into the central area of `SARibbonMainWindow` via `QWidget::createWindowContainer(new Qt3DWindow)`, the embedded container starts at an offset position.
+
+### Cause
+
+The container returned by `createWindowContainer` is a **native child window** (it holds an independent native window handle). Combined with a frameless main window (`UseRibbonFrame` mode), there are two known pitfalls:
+
+1. **Missing `Qt::AA_DontCreateNativeWidgetSiblings`**: by default Qt creates native sibling windows for native child windows to keep stacking correct, which conflicts with frameless windows (which rely on painting the whole client area), causing clipping/offset issues (same as [QWindowKit Issue #32](https://github.com/stdware/qwindowkit/issues/32), see section 6 item 3).
+2. **Geometry sync issue of `createWindowContainer` in older Qt versions**: some Qt 5.12/5.14 versions do not sync the native child window's initial geometry with the container layout on first show, showing up as a leftward offset that disappears after the window is resized once.
+
+Verified on Qt 5.15.16 + Windows 10 with the recommended usage below: the container's global position matches the layout expectation exactly (the offset equals the layout margins and is independent of DPI).
+
+### Solution
+
+1. **Set the attribute at the very beginning of `main` (before QApplication is created)**:
+
+    ```cpp
+    int main(int argc, char* argv[])
+    {
+        QGuiApplication::setAttribute(Qt::AA_DontCreateNativeWidgetSiblings);
+        QApplication a(argc, argv);
+        // ...
+    }
+    ```
+
+2. **Use Qt 5.15 or later** (Qt 6 recommended). The geometry sync issue of `createWindowContainer` in older versions has been fixed.
+
+3. **Check layout margins before assuming a bug**: `QVBoxLayout` and friends have default 9px margins, and the frameless `SARibbonMainWindow` has a 2px content margin (`setContentsMargins(2,0,2,0)`). These are normal layout behavior, not window offsets. Confirm with `layout()->contentsMargins()` and `contentsMargins()`.
+
+4. **Reproduction and measurement tool**: the repository provides `example/Qt3DWindowExample`, which prints the geometry of the main window / central widget / container (offset, DPR, native window geometry) on startup, and supports a `--dump` argument (print and exit). If you see an offset, please attach the `qt3d-geometry.log` output when filing an issue.
