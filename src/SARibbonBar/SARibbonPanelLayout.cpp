@@ -4,8 +4,10 @@
 #include "SARibbonElementManager.h"
 #include <QWidgetAction>
 #include <QQueue>
+#include <algorithm>
 #include "SARibbonPanel.h"
 #include "SARibbonPanelItem.h"
+#include "SARibbonGallery.h"
 #include "SARibbonQt5Compat.hpp"
 #include "SARibbonUtil.h"
 
@@ -1159,6 +1161,7 @@ void SARibbonPanelLayout::recalcExpandGeomArray(const QRect& setrect)
         int oldColumnWidth      = 0;   ///< 原来的列宽
         int columnMaximumWidth  = -1;  ///< 列的最大宽度
         int columnExpandedWidth = 0;   ///< 扩展后列的宽度
+        int columnStretch       = 0;   ///< 列内可扩展 item 的 stretch factor 之和（0 表示参与均分）
         QList< SARibbonPanelItem* > expandItems;
     };
 
@@ -1182,6 +1185,10 @@ void SARibbonPanelLayout::recalcExpandGeomArray(const QRect& setrect)
         if (item->expandingDirections() & Qt::Horizontal) {
             ci.value().expandItems.append(item);
             item->isExpandItem = true;
+            // 汇总列内 SARibbonGallery 的拉伸系数（issue #47）；非 gallery 的可扩展 item 不计权重
+            if (SARibbonGallery* gallery = qobject_cast< SARibbonGallery* >(item->widget())) {
+                ci.value().columnStretch += gallery->stretchFactor();
+            }
         }
     }
 
@@ -1206,10 +1213,68 @@ void SARibbonPanelLayout::recalcExpandGeomArray(const QRect& setrect)
     }
 
     // Step 2: 计算扩展后的列宽（直接使用预收集的列宽信息，无需调用 columnWidthInfo()）
-    int oneColCanexpandWidth = expandwidth / columnExpandInfo.size();
+    // 权重分配（issue #47）：全部列的 columnStretch 为 0 时退回均分增量（保持既有行为）；
+    // 任一列设置过 stretchFactor 后，按"各列原宽之和 + 增量"的总宽度做加权分配，
+    // 使最终宽度比接近权重比；系数为 0 的列退回原宽（不参与增量分配），
+    // 整数除法的余数按权重从小到大依次补 1px，避免小权重被饿死
+    int totalStretch = 0;
+    int oldWidthSum  = 0;
+    for (const _columnExpandInfo& info : columnExpandInfo) {
+        totalStretch += info.columnStretch;
+        oldWidthSum += info.oldColumnWidth;
+    }
+
+    QMap< int, int > columnExpandWidth;  // columnIndex -> 本列分得的增量宽度
+    if (totalStretch <= 0) {
+        // 全部为 0：均分（既有行为），余数从第一列开始依次补 1px
+        const int colCount = columnExpandInfo.size();
+        const int base     = expandwidth / colCount;
+        int remainder      = expandwidth - base * colCount;
+        for (auto i = columnExpandInfo.begin(); i != columnExpandInfo.end(); ++i) {
+            columnExpandWidth[ i.key() ] = base + (remainder-- > 0 ? 1 : 0);
+        }
+    } else {
+        // 有权重：对总宽度（原宽之和 + 增量）加权，最终宽度 ≈ 总宽 × 权重/权重和
+        const int totalDistributable = oldWidthSum + expandwidth;
+        int remainder                = totalDistributable;
+        for (auto i = columnExpandInfo.begin(); i != columnExpandInfo.end(); ++i) {
+            const int target = (i.value().columnStretch > 0)
+                                   ? (i.value().columnStretch * totalDistributable) / totalStretch
+                                   : i.value().oldColumnWidth;  // 0 权重列保持原宽
+            const int share  = qBound(0, target - i.value().oldColumnWidth, expandwidth);
+            columnExpandWidth[ i.key() ] = share;
+            remainder -= (i.value().oldColumnWidth + share);
+        }
+        // 余数/超发补偿：按权重从小到大依次调整 1px，保证总宽不超发也不遗漏
+        QList< QPair< int, int > > sortable;  // (stretch, columnIndex)
+        for (auto i = columnExpandInfo.begin(); i != columnExpandInfo.end(); ++i) {
+            if (i.value().columnStretch > 0) {
+                sortable.append(qMakePair(i.value().columnStretch, i.key()));
+            }
+        }
+        std::sort(sortable.begin(), sortable.end());
+        int idx = 0;
+        while (remainder > 0 && !sortable.isEmpty()) {
+            ++columnExpandWidth[ sortable.at(idx % sortable.size()).second ];
+            --remainder;
+            ++idx;
+        }
+        idx = 0;
+        while (remainder < 0 && !sortable.isEmpty()) {
+            const int col = sortable.at(idx % sortable.size()).second;
+            if (columnExpandWidth[ col ] > 0) {
+                --columnExpandWidth[ col ];
+                ++remainder;
+            }
+            ++idx;
+            if (idx > 4 * sortable.size() * (expandwidth + oldWidthSum + 1)) {
+                break;  // 防御性退出，避免理论上的死循环
+            }
+        }
+    }
 
     for (QMap< int, _columnExpandInfo >::iterator i = columnExpandInfo.begin(); i != columnExpandInfo.end(); ++i) {
-        int colwidth = oneColCanexpandWidth + i.value().oldColumnWidth;  // 先扩展了
+        int colwidth = i.value().oldColumnWidth + columnExpandWidth[ i.key() ];  // 先扩展了
         if (colwidth >= i.value().columnMaximumWidth) {
             // 过最大宽度要求
             i.value().columnExpandedWidth = i.value().columnMaximumWidth;

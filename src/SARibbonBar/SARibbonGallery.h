@@ -84,6 +84,7 @@ class SA_RIBBON_EXPORT SARibbonGallery : public QFrame
 {
     Q_OBJECT
     SA_RIBBON_DECLARE_PRIVATE(SARibbonGallery)
+    Q_PROPERTY(int stretchFactor READ stretchFactor WRITE setStretchFactor NOTIFY stretchFactorChanged)
 public:
     // Constructor for SARibbonGallery
     explicit SARibbonGallery(QWidget* parent = nullptr);
@@ -109,7 +110,23 @@ public:
     void setSingleRowMode(bool on);
     // Check if gallery is in single-row mode
     bool isSingleRowMode() const;
+    // Get the horizontal stretch factor of the gallery inside its panel (default 0, 0 means equal share as before)
+    int stretchFactor() const;
+    // Set the horizontal stretch factor (0 keeps the legacy equal-share behavior; >0 joins weighted distribution)
+    void setStretchFactor(int factor);
 Q_SIGNALS:
+    /**
+     * \if ENGLISH
+     * @brief Emitted when the stretch factor changes
+     * @param factor New stretch factor
+     * \endif
+     *
+     * \if CHINESE
+     * @brief 拉伸系数变化时发射
+     * @param factor 新的拉伸系数
+     * \endif
+     */
+    void stretchFactorChanged(int factor);
     /**
      * \if ENGLISH
      * @brief Forwards SARibbonGalleryGroup::triggered signal
