@@ -107,3 +107,43 @@ btn = waitForObject({"container": ribbonPanel, "objectName": "Save"})
 
 - Use only letters, digits, and underscores in objectName; avoid spaces and non-ASCII characters (some tools have escaping difficulties);
 - Name the actions that need automation coverage centrally, in `main()` or in the window constructor; do not rely on the text fallback.
+
+## Placing Custom Widgets in Galleries and Panels
+
+Gallery items are modeled on `QAction` (icon + text), which is **not** suitable for hosting interactive widgets such as `QCheckBox` directly. There are two recommended ways to place custom widgets:
+
+### Way 1: `SARibbonPanel::addWidget` — show the widget alongside the Gallery
+
+The widget is carried by a `QWidgetAction` and participates in the panel layout as a small item:
+
+```cpp
+SARibbonPanel* panel = category->addPanel(tr("gallery widgets"));
+SARibbonGallery* gallery = panel->addGallery();
+
+QCheckBox* checkBox = new QCheckBox(tr("enable preview"), panel);
+panel->addSmallWidget(checkBox);           // added as a small item
+
+QComboBox* combo = new QComboBox(panel);
+combo->addItems({ tr("option 1"), tr("option 2") });
+panel->addSmallWidget(combo);
+```
+
+### Way 2: put widgets into the Gallery popup viewport
+
+The popup window (opened by the "more" button at the bottom-right of the Gallery) is managed by `SARibbonGalleryViewport`, and arbitrary widgets can be added to it (grouped by title):
+
+```cpp
+QWidget* custom = new QWidget(gallery->getPopupViewPort());
+QVBoxLayout* lay = new QVBoxLayout(custom);
+lay->addWidget(new QCheckBox(tr("checkbox in popup"), custom));
+lay->addWidget(new QComboBox(custom));
+lay->addStretch();
+gallery->getPopupViewPort()->addWidget(custom, tr("custom widgets"));  // second argument is the group title
+```
+
+### Key Constraints
+
+- **Size**: widgets inside the panel are constrained by the row height (about one button height in single-row mode); taller widgets get compressed; `sizeHint` determines the reserved width;
+- **Ownership and release**: widgets in Way 1 are carried by a `QWidgetAction` and are **not** deleted on removal (the parent is explicitly set to the panel) — manage their lifetime yourself; widgets in Way 2 are managed by the viewport's content layout;
+- **`Qt::WA_LayoutUsesWidgetRect`**: already set by the framework when creating panel items; no manual handling is needed;
+- See the **gallery widgets** panel in the **other** tab of `example/MainWindowExample` for a complete runnable example (demonstrating both ways).

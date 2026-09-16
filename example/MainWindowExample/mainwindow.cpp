@@ -2281,6 +2281,49 @@ void MainWindow::createCategoryOther(SARibbonCategory* categoryPage)
         createAction(tr("show very long text in a button,balabalabala etc"), ":/icon/icon/long-text.svg", "long-text");
     panelAppButton->addLargeAction(actionLongText);
 
+    // Gallery/面板中放置自定义控件（issue #78 演示）：
+    // 方式一：SARibbonPanel::addWidget 通过 QWidgetAction 把任意控件加入面板（与 Gallery 同面板展示）
+    SARibbonPanel* panelGalleryWidgets = new SARibbonPanel(tr("gallery widgets"));
+    panelGalleryWidgets->setObjectName("CategoryOther-panelGalleryWidgets");
+    categoryPage->addPanel(panelGalleryWidgets);
+    QCheckBox* galleryCheckBox = new QCheckBox(tr("checkbox in panel"), panelGalleryWidgets);
+    connect(galleryCheckBox, &QCheckBox::toggled, this, [ this ](bool on) {
+        if (this->ui->textBrowser) {
+            this->ui->textBrowser->append(QString("gallery panel checkbox toggled: %1").arg(on));
+        }
+    });
+    panelGalleryWidgets->addSmallWidget(galleryCheckBox);
+    QComboBox* galleryComboBox = new QComboBox(panelGalleryWidgets);
+    galleryComboBox->addItems({ tr("option 1"), tr("option 2"), tr("option 3") });
+    connect(galleryComboBox,
+            QOverload< int >::of(&QComboBox::currentIndexChanged),
+            this,
+            [ this ](int idx) {
+                if (this->ui->textBrowser) {
+                    this->ui->textBrowser->append(QString("gallery panel combobox changed: %1").arg(idx));
+                }
+            });
+    panelGalleryWidgets->addSmallWidget(galleryComboBox);
+    QPushButton* galleryButton = new QPushButton(tr("button in panel"), panelGalleryWidgets);
+    connect(galleryButton, &QPushButton::clicked, this, [ this ]() {
+        if (this->ui->textBrowser) {
+            this->ui->textBrowser->append("gallery panel button clicked");
+        }
+    });
+    panelGalleryWidgets->addSmallWidget(galleryButton);
+    // 方式二：把控件放进 Gallery 的弹出 viewport（点 Gallery 右下角"更多"按钮弹出可见）
+    SARibbonGalleryViewport* galleryViewport = gallery->getPopupViewPort();
+    QWidget* viewportCustomWidget = new QWidget(galleryViewport);
+    QVBoxLayout* viewportLay      = new QVBoxLayout(viewportCustomWidget);
+    viewportLay->setContentsMargins(4, 4, 4, 4);
+    QCheckBox* viewportCheck = new QCheckBox(tr("checkbox in gallery popup"), viewportCustomWidget);
+    viewportLay->addWidget(viewportCheck);
+    QComboBox* viewportCombo = new QComboBox(viewportCustomWidget);
+    viewportCombo->addItems({ tr("popup option A"), tr("popup option B") });
+    viewportLay->addWidget(viewportCombo);
+    viewportLay->addStretch();
+    galleryViewport->addWidget(viewportCustomWidget, tr("custom widgets"));
+
     SARibbonPanel* panelStyle = new SARibbonPanel(tr("style"));
     panelStyle->setObjectName("CategoryOther-panelStyle");
     categoryPage->addPanel(panelStyle);

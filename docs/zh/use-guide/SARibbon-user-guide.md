@@ -157,3 +157,43 @@ btn = waitForObject({"container": ribbonPanel, "objectName": "Save"})
 
 - objectName 只用字母、数字与下划线，避免空格与中文（部分工具转义困难）；
 - 在 `main()` 或窗口构造中集中为需要自动化覆盖的 action 命名，不要依赖文本兜底。
+
+## 在 Gallery 与面板中放置自定义控件
+
+Gallery 的条目模型基于 `QAction`（图标+文字），**不适合**直接塞进 `QCheckBox` 等交互控件。放置自定义控件有两种推荐方式：
+
+### 方式一：`SARibbonPanel::addWidget` —— 控件与 Gallery 同面板展示
+
+通过 `QWidgetAction` 承载，控件作为面板的一个小项参与布局：
+
+```cpp
+SARibbonPanel* panel = category->addPanel(tr("gallery widgets"));
+SARibbonGallery* gallery = panel->addGallery();
+
+QCheckBox* checkBox = new QCheckBox(tr("enable preview"), panel);
+panel->addSmallWidget(checkBox);           // 以小尺寸项加入面板
+
+QComboBox* combo = new QComboBox(panel);
+combo->addItems({ tr("option 1"), tr("option 2") });
+panel->addSmallWidget(combo);
+```
+
+### 方式二：放进 Gallery 的弹出 viewport
+
+点 Gallery 右下角"更多"按钮弹出的窗口由 `SARibbonGalleryViewport` 管理，可以向它添加任意控件（带标题分组）：
+
+```cpp
+QWidget* custom = new QWidget(gallery->getPopupViewPort());
+QVBoxLayout* lay = new QVBoxLayout(custom);
+lay->addWidget(new QCheckBox(tr("checkbox in popup"), custom));
+lay->addWidget(new QComboBox(custom));
+lay->addStretch();
+gallery->getPopupViewPort()->addWidget(custom, tr("custom widgets"));  // 第二个参数为分组标题
+```
+
+### 关键约束
+
+- **尺寸**：面板内控件的高度受行高约束（单行模式约一个按钮高度），过高的控件会被压缩；`sizeHint` 决定占位宽度；
+- **所有权与释放**：方式一的控件经 `QWidgetAction` 承载，移除时**不会**被删除（父对象被显式设为 panel），需要自行管理生命周期；方式二的控件由 viewport 内容布局管理；
+- **`Qt::WA_LayoutUsesWidgetRect`**：框架在创建面板项时已自动设置，无需手工处理；
+- 完整可运行示例见 `example/MainWindowExample` 的 **other** 标签页 **gallery widgets** 面板（同时演示两种方式）。

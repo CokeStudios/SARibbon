@@ -188,7 +188,7 @@ protected:
  * @brief SARibbonGallery的Viewport类
  * \endif
  */
-class SARibbonGalleryViewport : public QScrollArea
+class SA_RIBBON_EXPORT SARibbonGalleryViewport : public QScrollArea
 {
     Q_OBJECT
 public:
