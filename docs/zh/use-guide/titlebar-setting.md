@@ -221,3 +221,26 @@ setFrameBorderColor(QColor(Qt::red)); // 可选：自定义颜色；传入无效
 ### Win11 Snap Layout 弹出
 
 Windows 11 的 Snap Layout 弹出层（鼠标悬停最大化按钮出现的分屏布局选择）需要 QWindowKit 路径（`SARIBBON_USE_FRAMELESS_LIB=ON` 并启用 `SARIBBON_ENABLE_SNAPLAYOUT`）；默认路径只提供拖拽贴边，不提供悬停弹出层。
+
+## 窗口阴影
+
+无边框模式（`UseRibbonFrame`）默认没有阴影。可通过属性开启 DWM 系统阴影：
+
+```cpp
+setFrameShadowEnabled(true);  // Windows（非 QWK 路径）下生效
+```
+
+### 平台差异
+
+| 平台/路径 | 阴影行为 |
+|-----------|---------|
+| Windows（默认路径） | 开启后获得 DWM 系统阴影（实现：加 `WS_THICKFRAME` + `DwmExtendFrameIntoClientArea`，配套处理 `WM_NCCALCSIZE`/`WM_NCACTIVATE`，客户区仍铺满整窗） |
+| Windows（QWindowKit 路径） | QWK 自带阴影处理，`setFrameShadowEnabled` 为空操作 |
+| macOS | 系统自带阴影，无需设置 |
+| Linux | 无通用方案（依窗口管理器而定） |
+
+### 注意
+
+- **窗口最大化时系统不绘制阴影**，这是 Windows 行为，不是 bug；
+- 开启阴影后系统 resize 光标（窗口边缘的调整尺寸光标）同样由系统提供，与原有纯 Qt 缩放行为并存；
+- 运行 `example/MainWindowExample` 的 **other** 标签页 **style** 面板 "window frame shadow" 开关可实时验证。

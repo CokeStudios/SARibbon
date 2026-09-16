@@ -206,3 +206,26 @@ Interactive widgets on the title bar — system buttons, the quick access bar, c
 ### Win11 Snap Layout Flyout
 
 The Windows 11 Snap Layout flyout (the layout picker shown when hovering the maximize button) requires the QWindowKit path (`SARIBBON_USE_FRAMELESS_LIB=ON` plus `SARIBBON_ENABLE_SNAPLAYOUT`); the default path only provides drag snapping, not the hover flyout.
+
+## Window Shadow
+
+Frameless mode (`UseRibbonFrame`) has no shadow by default. The DWM system shadow can be enabled:
+
+```cpp
+setFrameShadowEnabled(true);  // effective on Windows (non-QWK path)
+```
+
+### Platform Differences
+
+| Platform / path | Shadow behavior |
+|-----------------|-----------------|
+| Windows (default path) | enabling turns on the DWM system shadow (implementation: adds `WS_THICKFRAME` + `DwmExtendFrameIntoClientArea`, with matching `WM_NCCALCSIZE`/`WM_NCACTIVATE` handling; the client area still covers the whole window) |
+| Windows (QWindowKit path) | QWK provides its own shadow handling; `setFrameShadowEnabled` is a no-op |
+| macOS | the system provides shadows natively, nothing to set |
+| Linux | no universal solution (depends on the window manager) |
+
+### Notes
+
+- **The system does not draw the shadow when the window is maximized** — this is Windows behavior, not a bug;
+- After enabling, the system resize cursors (at the window edges) are also provided by the system, coexisting with the original pure-Qt resizing;
+- Run the "window frame shadow" toggle in the **style** panel of the **other** tab in `example/MainWindowExample` to verify in real time.
