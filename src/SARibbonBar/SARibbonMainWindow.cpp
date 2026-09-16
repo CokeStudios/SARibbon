@@ -610,6 +610,14 @@ void SARibbonMainWindow::onPrimaryScreenChanged(QScreen* screen)
         qDebug() << "Primary Screen Changed";
         bar->updateRibbonGeometry();
     }
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    // 主屏切换可能伴随 DPI 变化，窗口尺寸不变时系统按钮栏不会收到 resize 事件，
+    // 主动发送屏幕变化事件触发其重算几何（issue #118）
+    if (d_ptr->mWindowButtonGroup) {
+        QEvent ev(QEvent::ScreenChangeInternal);
+        QCoreApplication::sendEvent(this, &ev);
+    }
+#endif
 }
 
 //----------------------------------------------------

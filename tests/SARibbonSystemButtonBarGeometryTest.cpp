@@ -77,6 +77,7 @@ private slots:
     void testRTLAnchoring();
     void testMaximizeRestore();
     void testButtonWidthStretch();
+    void testScreenChangeEventRestoresGeometry();
 };
 
 void SARibbonSystemButtonBarGeometryTest::testNormalWidthLTR()
@@ -220,6 +221,41 @@ void SARibbonSystemButtonBarGeometryTest::testButtonWidthStretch()
     QString why;
     QVERIFY2(checkLTRAnchors(bar, &why), qPrintable(why));
     bar.hide();
+}
+
+void SARibbonSystemButtonBarGeometryTest::testScreenChangeEventRestoresGeometry()
+{
+    // 复现 issue #118 的失效机制：屏幕/DPI 变化时窗口尺寸可能不变，
+    // 系统按钮栏不会收到 resizeEvent；若事件分支不显式重算，被打乱的几何不会复位
+    SARibbonMainWindow w;
+    w.resize(800, 600);
+    w.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&w));
+    QApplication::processEvents();
+
+    SARibbonSystemButtonBar* bar = w.windowButtonBar();
+    QVERIFY(bar != nullptr);
+
+    // 记录正确几何，然后手工打乱内部按钮位置（模拟跨屏后停留在旧位置）
+    const QRect correctClose = bar->closeButton()->geometry();
+    const QRect correctMin   = bar->minimizeButton()->geometry();
+    bar->closeButton()->setGeometry(0, 0, 10, 10);
+    bar->minimizeButton()->setGeometry(20, 0, 10, 10);
+    QApplication::processEvents();
+
+    // 直接触发屏幕变化事件（Qt 5.14+ 才有 ScreenChangeInternal）
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    QEvent ev(QEvent::ScreenChangeInternal);
+    QCoreApplication::sendEvent(&w, &ev);
+    QApplication::processEvents();
+
+    // 即使窗口尺寸未变，内部按钮几何也必须被复位
+    QString why;
+    QVERIFY2(checkLTRAnchors(*bar, &why), qPrintable(why));
+    QCOMPARE(bar->closeButton()->geometry(), correctClose);
+    QCOMPARE(bar->minimizeButton()->geometry(), correctMin);
+#endif
+    w.hide();
 }
 
 QTEST_MAIN(SARibbonSystemButtonBarGeometryTest)
