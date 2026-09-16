@@ -2358,6 +2358,19 @@ void MainWindow::createCategoryOther(SARibbonCategory* categoryPage)
         }
     });
 
+    // DWM 系统阴影开关（issue #129 演示，仅 Windows 非 QWK 路径生效）：
+    // 开启后无边框窗口获得系统阴影（最大化时系统不绘制阴影属正常行为）
+    QAction* actionFrameShadow = createAction(tr("window frame shadow"), ":/icon/icon/windowsflag-normal.svg");
+    actionFrameShadow->setCheckable(true);
+    actionFrameShadow->setChecked(false);
+    panelStyle->addSmallAction(actionFrameShadow);
+    connect(actionFrameShadow, &QAction::triggered, this, [ this ](bool on) {
+        setFrameShadowEnabled(on);
+        if (ui->textBrowser) {
+            ui->textBrowser->append(QString("window frame shadow %1").arg(on ? "on" : "off"));
+        }
+    });
+
     SARibbonPanel* panelUtf8 = new SARibbonPanel(QStringLiteral(u"中文显示测试"));
     panelUtf8->setObjectName("CategoryOther-panelUtf8");
     categoryPage->addPanel(panelUtf8);

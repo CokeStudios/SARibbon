@@ -32,6 +32,7 @@
 #if defined(Q_OS_WIN) && !SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
 #include <windows.h>
 #include <windowsx.h>
+#include <dwmapi.h>
 #endif
 
 /**
@@ -123,6 +124,7 @@ public:
     SARibbonSystemButtonBar* mWindowButtonGroup { nullptr };
     bool mFrameBorderEnabled { false };  ///< 是否绘制 1px 窗口边框（默认关闭保持现行为）
     QColor mFrameBorderColor;            ///< 自定义边框颜色，无效色表示跟随主题
+    bool mFrameShadowEnabled { false };  ///< 是否启用 DWM 系统阴影（仅 Windows 非 QWK 路径）
 #if SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
     QWK::WidgetWindowAgent* mFramelessHelper { nullptr };
 #else
@@ -702,6 +704,127 @@ void SARibbonMainWindow::setFrameBorderColor(const QColor& color)
     }
 }
 
+#if defined(Q_OS_WIN) && !SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
+namespace {
+// dwmapi 动态解析（照抄 QWK qwkwindowsextra_p.h 的做法，不引入链接期依赖）
+typedef HRESULT(WINAPI* DwmExtendFrameIntoClientAreaPtr)(HWND, const MARGINS*);
+typedef HRESULT(WINAPI* DwmIsCompositionEnabledPtr)(BOOL*);
+
+DwmExtendFrameIntoClientAreaPtr dwmExtendFrameIntoClientArea()
+{
+    static DwmExtendFrameIntoClientAreaPtr fn = nullptr;
+    static bool resolved = false;
+    if (!resolved) {
+        resolved = true;
+        HMODULE dwm = ::LoadLibraryW(L"dwmapi.dll");
+        if (dwm) {
+            fn = reinterpret_cast< DwmExtendFrameIntoClientAreaPtr >(
+                ::GetProcAddress(dwm, "DwmExtendFrameIntoClientArea"));
+        }
+    }
+    return fn;
+}
+
+bool isDwmCompositionEnabled()
+{
+    DwmIsCompositionEnabledPtr fn = nullptr;
+    HMODULE dwm                   = ::LoadLibraryW(L"dwmapi.dll");
+    if (dwm) {
+        fn = reinterpret_cast< DwmIsCompositionEnabledPtr >(::GetProcAddress(dwm, "DwmIsCompositionEnabled"));
+    }
+    if (!fn) {
+        return false;
+    }
+    BOOL enabled = FALSE;
+    return SUCCEEDED(fn(&enabled)) && enabled;
+}
+
+// 给无边框窗口补 WS_THICKFRAME（可调整尺寸边框），DWM 阴影与系统 resize 光标依赖它；
+// 不加 WS_CAPTION，避免系统标题栏回来
+void applyShadowStyle(HWND hwnd, bool on)
+{
+    const LONG_PTR style = ::GetWindowLongPtrW(hwnd, GWL_STYLE);
+    const LONG_PTR wanted = on ? (style | WS_THICKFRAME) : (style & ~WS_THICKFRAME);
+    if (wanted != style) {
+        ::SetWindowLongPtrW(hwnd, GWL_STYLE, wanted);
+        // 触发非客户区重算
+        ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                       SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+// 应用 DWM 阴影：DwmExtendFrameIntoClientArea 负责把 frame 扩入客户区（阴影随之出现）
+void applyDwmShadow(HWND hwnd, bool on)
+{
+    auto fn = dwmExtendFrameIntoClientArea();
+    if (!fn || !isDwmCompositionEnabled()) {
+        return;
+    }
+    MARGINS margins = on ? MARGINS { 0, 0, 0, 1 }  // 底部 1px：保留阴影所需的 frame 痕迹
+                         : MARGINS { 0, 0, 0, 0 };
+    fn(hwnd, &margins);
+}
+}  // namespace
+#endif
+
+/**
+ * \if ENGLISH
+ * @brief Checks whether the DWM system shadow is enabled for the frameless window
+ * @return true if enabled
+ * @note Windows only (non-QWK path); always false on other platforms and on the QWK path
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 查询无边框窗口是否启用了 DWM 系统阴影
+ * @return 启用时返回 true
+ * @note 仅 Windows（非 QWK 路径）有效；其他平台与 QWK 路径恒为 false
+ * \endif
+ */
+bool SARibbonMainWindow::isFrameShadowEnabled() const
+{
+    return d_ptr->mFrameShadowEnabled;
+}
+
+/**
+ * \if ENGLISH
+ * @brief Enables the DWM system shadow for the frameless window
+ * @param on true to enable the shadow
+ * @details Windows non-QWK path: adds WS_THICKFRAME and extends the DWM frame into the client
+ *          area, so the window gets the standard system shadow. WM_NCCALCSIZE/WM_NCACTIVATE are
+ *          handled in nativeEvent() to keep the client area covering the whole window (no system
+ *          title bar/border appears). No-op on non-Windows platforms and the QWK path (QWK has
+ *          its own shadow handling). Note: the system shadow is not drawn when the window is
+ *          maximized — that is a Windows behavior, not a bug.
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 为无边框窗口启用 DWM 系统阴影
+ * @param on true 启用阴影
+ * @details Windows 非 QWK 路径：加 WS_THICKFRAME 并把 DWM frame 扩入客户区，窗口获得标准
+ *          系统阴影。WM_NCCALCSIZE/WM_NCACTIVATE 在 nativeEvent() 中配套处理，客户区仍然
+ *          铺满整个窗口（不会出现系统标题栏/边框）。非 Windows 平台与 QWK 路径为空操作
+ *          （QWK 有自己的阴影处理）。注意：窗口最大化时系统不绘制阴影——这是 Windows 的
+ *          行为，不是 bug。
+ * \endif
+ */
+void SARibbonMainWindow::setFrameShadowEnabled(bool on)
+{
+    if (d_ptr->mFrameShadowEnabled == on) {
+        return;
+    }
+    d_ptr->mFrameShadowEnabled = on;
+    Q_EMIT frameShadowEnabledChanged(on);
+#if defined(Q_OS_WIN) && !SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
+    if (!testAttribute(Qt::WA_WState_Created) || !testAttribute(Qt::WA_WState_Visible)) {
+        return;  // 窗口未创建/未显示，nativeEvent 会在显示后按状态应用
+    }
+    if (WId hwnd = winId()) {
+        applyShadowStyle(reinterpret_cast< HWND >(hwnd), on);
+        applyDwmShadow(reinterpret_cast< HWND >(hwnd), on);
+    }
+#endif
+}
+
 /**
  * \if ENGLISH
  * @brief Draws the optional 1px frame border and then the default window content
@@ -776,6 +899,32 @@ bool SARibbonMainWindow::nativeEvent(const QByteArray& eventType, void* message,
 {
     if (eventType == "windows_generic_MSG" && message) {
         MSG* msg = static_cast< MSG* >(message);
+        if (d_ptr->mFrameShadowEnabled) {
+            // ---- DWM 阴影配套处理（issue #129）----
+            if (msg->message == WM_NCCALCSIZE && msg->wParam) {
+                // 加了 WS_THICKFRAME 后系统会预留边框区，这里把客户区还原为铺满整个窗口：
+                // 先记下 top，跑 DefWindowProc（应用默认 frame，保住左/右/下边框与阴影），
+                // 再恢复 top（去掉系统标题栏）——做法与 QWK nonClientCalcSizeHandler 一致
+                auto* params = reinterpret_cast< LPNCCALCSIZE_PARAMS >(msg->lParam);
+                const LONG originalTop = params->rgrc[ 0 ].top;
+                const LRESULT defResult = ::DefWindowProcW(msg->hwnd, WM_NCCALCSIZE, msg->wParam, msg->lParam);
+                params->rgrc[ 0 ].top  = originalTop;
+                // 最大化时窗口实际尺寸比屏幕大一圈（resize 手柄在屏外），需裁剪，
+                // 否则内容超出屏幕边界显示不全
+                if (isMaximized() && !isFullScreen()) {
+                    const UINT dpi = ::GetDpiForWindow(msg->hwnd);
+                    const int frameSize = ::GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi)
+                                        + ::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+                    params->rgrc[ 0 ].top += frameSize;
+                }
+                *result = 0;
+                return true;
+            } else if (msg->message == WM_NCACTIVATE) {
+                // 防失活白边：lParam 设 -1 让系统不重绘 frame（经典 frameless 做法）
+                *result = ::DefWindowProcW(msg->hwnd, WM_NCACTIVATE, msg->wParam, -1);
+                return true;
+            }
+        }
         if (msg->message == WM_NCHITTEST) {
             // lParam 是屏幕物理坐标：ScreenToClient 转为窗口本地物理坐标，
             // 再除以 devicePixelRatioF 得到本地逻辑坐标（Qt 的逻辑↔物理映射关系）
@@ -809,6 +958,28 @@ bool SARibbonMainWindow::nativeEvent(const QByteArray& eventType, void* message,
         }
     }
     return QMainWindow::nativeEvent(eventType, message, result);
+}
+
+/**
+ * \if ENGLISH
+ * @brief Applies the pending DWM shadow state once the native window exists
+ * @param e Show event
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 原生窗口创建后应用待生效的 DWM 阴影状态
+ * @param e 显示事件
+ * \endif
+ */
+void SARibbonMainWindow::showEvent(QShowEvent* e)
+{
+    QMainWindow::showEvent(e);
+    if (d_ptr->mFrameShadowEnabled) {
+        if (WId hwnd = winId()) {
+            applyShadowStyle(reinterpret_cast< HWND >(hwnd), true);
+            applyDwmShadow(reinterpret_cast< HWND >(hwnd), true);
+        }
+    }
 }
 #endif
 

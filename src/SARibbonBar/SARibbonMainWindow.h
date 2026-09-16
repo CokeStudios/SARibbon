@@ -111,6 +111,7 @@ class SA_RIBBON_EXPORT SARibbonMainWindow : public QMainWindow
     Q_PROPERTY(SARibbonTheme ribbonTheme READ ribbonTheme WRITE setRibbonTheme NOTIFY ribbonThemeChanged)
     Q_PROPERTY(bool frameBorderEnabled READ isFrameBorderEnabled WRITE setFrameBorderEnabled NOTIFY frameBorderEnabledChanged)
     Q_PROPERTY(QColor frameBorderColor READ frameBorderColor WRITE setFrameBorderColor NOTIFY frameBorderColorChanged)
+    Q_PROPERTY(bool frameShadowEnabled READ isFrameShadowEnabled WRITE setFrameShadowEnabled NOTIFY frameShadowEnabledChanged)
 
 public:
     // Constructor for SARibbonMainWindow
@@ -157,6 +158,10 @@ public:
     QColor frameBorderColor() const;
     // Set a custom frame border color; pass an invalid QColor to follow the current theme
     void setFrameBorderColor(const QColor& color);
+    // Check whether the system window shadow is enabled on the frameless window (default off; Windows only, non-QWK path)
+    bool isFrameShadowEnabled() const;
+    // Enable the DWM system shadow for the frameless window (Windows only, non-QWK path; no-op elsewhere)
+    void setFrameShadowEnabled(bool on);
 
     // Pass ribbonbar events to frameless
     virtual bool eventFilter(QObject* obj, QEvent* e) Q_DECL_OVERRIDE;
@@ -170,6 +175,8 @@ protected:
     // Windows non-QWK path: return HTCAPTION for the title bar draggable area so that the
     // system takes over title bar dragging and provides Aero Snap (half-screen/maximize)
     virtual bool nativeEvent(const QByteArray& eventType, void* message, long* result) Q_DECL_OVERRIDE;
+    // Apply the pending DWM shadow state after the native window is created
+    virtual void showEvent(QShowEvent* e) Q_DECL_OVERRIDE;
 #endif
 private Q_SLOTS:
     // Handle primary screen changed event
@@ -211,6 +218,18 @@ Q_SIGNALS:
      * \endif
      */
     void frameBorderColorChanged(const QColor& color);
+    /**
+     * \if ENGLISH
+     * @brief Emitted when the frame shadow toggle changes
+     * @param on New toggle state
+     * \endif
+     *
+     * \if CHINESE
+     * @brief 窗口阴影开关变化时触发的信号
+     * @param on 新的开关状态
+     * \endif
+     */
+    void frameShadowEnabledChanged(bool on);
 };
 
 /**
