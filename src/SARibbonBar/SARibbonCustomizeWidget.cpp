@@ -170,6 +170,15 @@ int sa_customize_datas_reverse(const QList< SARibbonCustomizeData >& cds, SARibb
         case SARibbonCustomizeData::VisibleCategoryActionType:
             rd = SARibbonCustomizeData::makeVisibleCategoryCustomizeData(d.categoryObjNameValue, d.indexValue != 1);
             break;
+        case SARibbonCustomizeData::AddQuickActionActionType:
+            rd = SARibbonCustomizeData::makeRemoveQuickActionCustomizeData(d.keyValue, mgr);
+            break;
+        case SARibbonCustomizeData::RemoveQuickActionActionType:
+            rd = SARibbonCustomizeData::makeAddQuickActionCustomizeData(d.keyValue, mgr);
+            break;
+        case SARibbonCustomizeData::ChangeQuickActionOrderActionType:
+            rd = SARibbonCustomizeData::makeChangeQuickActionOrderCustomizeData(d.keyValue, mgr, -d.indexValue);
+            break;
         default:
             continue;
         }
