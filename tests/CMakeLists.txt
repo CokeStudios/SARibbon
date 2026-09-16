@@ -43,3 +43,4 @@ add_saribbon_test(SARibbonCategoryVisibilityTest SARibbonCategoryVisibilityTest.
 add_saribbon_test(SARibbonBarEventFilterTest SARibbonBarEventFilterTest.cpp)
 add_saribbon_test(ThemeCoverageTest ThemeCoverageTest.cpp)
 add_saribbon_test(SARibbonThemePaletteTest auto/SARibbonThemePalette/tst_themepalette.cpp)
+add_saribbon_test(SARibbonButtonGroupWidgetTest SARibbonButtonGroupWidgetTest.cpp)
