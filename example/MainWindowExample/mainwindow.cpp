@@ -2342,6 +2342,22 @@ void MainWindow::createCategoryOther(SARibbonCategory* categoryPage)
     panelStyle->addSmallAction(actionWindowFlagNormalButton);
     connect(actionWindowFlagNormalButton, &QAction::triggered, this, &MainWindow::onActionWindowFlagNormalButtonTriggered);
 
+    // 主窗口 1px 边框开关（issue #154 演示）：开启后窗口边缘绘制边框，与同色背景可分辨
+    QAction* actionFrameBorder = createAction(tr("window frame border"), ":/icon/icon/windowsflag-normal.svg");
+    actionFrameBorder->setCheckable(true);
+    actionFrameBorder->setChecked(false);
+    panelStyle->addSmallAction(actionFrameBorder);
+    connect(actionFrameBorder, &QAction::triggered, this, [ this ](bool on) {
+        setFrameBorderEnabled(on);
+        // 演示自定义颜色：跟随主题（无效色）也可用 setFrameBorderColor(QColor()) 切回
+        if (on) {
+            setFrameBorderColor(QColor(0x80, 0x80, 0x80));
+        }
+        if (ui->textBrowser) {
+            ui->textBrowser->append(QString("window frame border %1").arg(on ? "on" : "off"));
+        }
+    });
+
     SARibbonPanel* panelUtf8 = new SARibbonPanel(QStringLiteral(u"中文显示测试"));
     panelUtf8->setObjectName("CategoryOther-panelUtf8");
     categoryPage->addPanel(panelUtf8);

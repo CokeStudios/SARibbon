@@ -10,6 +10,7 @@ class QAction;
 class SARibbonBar;
 class SARibbonSystemButtonBar;
 class QScreen;
+class QColor;
 /**
  * \if ENGLISH
  * @brief Must use this class instead of QMainWindow to use SARibbonBar
@@ -88,6 +89,8 @@ class SA_RIBBON_EXPORT SARibbonMainWindow : public QMainWindow
     SA_RIBBON_DECLARE_PRIVATE(SARibbonMainWindow)
     friend class SARibbonBar;
     Q_PROPERTY(SARibbonTheme ribbonTheme READ ribbonTheme WRITE setRibbonTheme NOTIFY ribbonThemeChanged)
+    Q_PROPERTY(bool frameBorderEnabled READ isFrameBorderEnabled WRITE setFrameBorderEnabled NOTIFY frameBorderEnabledChanged)
+    Q_PROPERTY(QColor frameBorderColor READ frameBorderColor WRITE setFrameBorderColor NOTIFY frameBorderColorChanged)
 
 public:
     // Constructor for SARibbonMainWindow
@@ -126,6 +129,14 @@ public:
     SARibbonSystemButtonBar* windowButtonBar() const;
     // Get the current mainwindow style
     SARibbonMainWindowStyles ribbonMainwindowStyle() const;
+    // Check whether the 1px window frame border is drawn (default off, keeping current appearance)
+    bool isFrameBorderEnabled() const;
+    // Enable/disable drawing of the 1px window frame border
+    void setFrameBorderEnabled(bool on);
+    // Get the custom frame border color; an invalid color means "follow current theme"
+    QColor frameBorderColor() const;
+    // Set a custom frame border color; pass an invalid QColor to follow the current theme
+    void setFrameBorderColor(const QColor& color);
 
     // Pass ribbonbar events to frameless
     virtual bool eventFilter(QObject* obj, QEvent* e) Q_DECL_OVERRIDE;
@@ -133,6 +144,8 @@ public:
 protected:
     // Factory function to create ribbonbar
     SARibbonBar* createRibbonBar();
+    // Draw the optional 1px frame border when frameBorderEnabled is on
+    virtual void paintEvent(QPaintEvent* e) Q_DECL_OVERRIDE;
 private Q_SLOTS:
     // Handle primary screen changed event
     void onPrimaryScreenChanged(QScreen* screen);
@@ -149,6 +162,30 @@ Q_SIGNALS:
      * \endif
      */
     void ribbonThemeChanged(SARibbonTheme theme);
+    /**
+     * \if ENGLISH
+     * @brief Emitted when the frame border toggle changes
+     * @param on New toggle state
+     * \endif
+     *
+     * \if CHINESE
+     * @brief 边框绘制开关变化时触发的信号
+     * @param on 新的开关状态
+     * \endif
+     */
+    void frameBorderEnabledChanged(bool on);
+    /**
+     * \if ENGLISH
+     * @brief Emitted when the frame border color changes
+     * @param color New border color
+     * \endif
+     *
+     * \if CHINESE
+     * @brief 边框颜色变化时触发的信号
+     * @param color 新的边框颜色
+     * \endif
+     */
+    void frameBorderColorChanged(const QColor& color);
 };
 
 /**

@@ -182,3 +182,20 @@ MainWindow::MainWindow(QWidget* parent)
 
 !!! note
     该菜单仅在无边框模式（`UseRibbonFrame`）下可用——原生边框模式（`UseNativeFrame`）使用系统自带菜单，标题图标被隐藏。
+
+## 主窗口边框绘制
+
+无边框模式（`UseRibbonFrame`）下窗口与同色背景（例如同为白色的文档区或桌面）可能无法分辨边界。可开启可选的 1px 边框绘制：
+
+```cpp
+setFrameBorderEnabled(true);          // 开启（默认关闭，不影响既有外观）
+setFrameBorderColor(QColor(Qt::red)); // 可选：自定义颜色；传入无效 QColor() 则跟随主题
+```
+
+- **默认关闭**：不设置时窗口外观与旧版本完全一致；
+- **颜色取值顺序**：自定义 `frameBorderColor`（有效色）→ 当前主题调色板的 `border-color` 色板 → palette 窗口色加深的兜底；
+- **主题联动**：边框色跟随主题时，切换主题会自动重绘；
+- **可见范围**：左右边与底边完整可见（落在主窗口预留的内容边距区）；顶边由标题栏（ribbon）覆盖，视觉上由 ribbon 自身的边界呈现；
+- **QWK 路径差异**：启用 QWindowKit（`SARIBBON_USE_FRAMELESS_LIB=ON`）时窗口由 QWK 的原生 frame 机制处理，自绘边框可能被系统 frame 覆盖，建议该路径下依赖 QWK 的边框能力。
+
+运行 `example/MainWindowExample` 的 **other** 标签页 **style** 面板 "window frame border" 开关可实时验证。

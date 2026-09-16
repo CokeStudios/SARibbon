@@ -4,10 +4,13 @@
 #include "SARibbonElementManager.h"
 #include "SARibbonTabBar.h"
 #include "SARibbonThemeManager.h"
+#include "SARibbonThemePalette.h"
 #include <QApplication>
 #include <QDebug>
 #include <QFile>
 #include <QHash>
+#include <QPainter>
+#include <QPen>
 #include <QWindowStateChangeEvent>
 #include <QScreen>
 #include <QTimer>
@@ -27,6 +30,38 @@
 /**
  * @brief The SARibbonMainWindowPrivate class
  */
+namespace {
+// 主题对应的内置调色板路径（与 SARibbonThemeManager.cpp / SARibbonUtil.cpp 的同名映射一致），
+// 用于边框色跟随主题时解析 border-color token
+QString mainWindowThemePalettePath(SARibbonTheme theme)
+{
+    switch (theme) {
+    case SARibbonTheme::RibbonThemeOffice2016Blue:
+        return ":/SARibbonTheme/resource/palettes/office2016-blue.json";
+    case SARibbonTheme::RibbonThemeOffice2016Green:
+        return ":/SARibbonTheme/resource/palettes/office2016-green.json";
+    case SARibbonTheme::RibbonThemeOffice2016Dark:
+        return ":/SARibbonTheme/resource/palettes/office2016-dark.json";
+    case SARibbonTheme::RibbonThemeOffice2021Blue:
+        return ":/SARibbonTheme/resource/palettes/office2021-blue.json";
+    case SARibbonTheme::RibbonThemeOffice2021Green:
+        return ":/SARibbonTheme/resource/palettes/office2021-green.json";
+    case SARibbonTheme::RibbonThemeOffice2021Dark:
+        return ":/SARibbonTheme/resource/palettes/office2021-dark.json";
+    case SARibbonTheme::RibbonThemeDark:
+        return ":/SARibbonTheme/resource/palettes/dark-default.json";
+    case SARibbonTheme::RibbonThemeDark2:
+        return ":/SARibbonTheme/resource/palettes/dark2-default.json";
+    case SARibbonTheme::RibbonThemeWindows7:
+        return ":/SARibbonTheme/resource/palettes/win7-default.json";
+    case SARibbonTheme::RibbonThemeOffice2013:
+        return ":/SARibbonTheme/resource/palettes/office2013-default.json";
+    default:
+        return QString();
+    }
+}
+}  // namespace
+
 class SARibbonMainWindow::PrivateData
 {
     SA_RIBBON_DECLARE_PUBLIC(SARibbonMainWindow)
@@ -42,6 +77,8 @@ public:
     SARibbonMainWindowStyles mRibbonMainWindowStyle;
     SARibbonTheme mCurrentRibbonTheme { SARibbonTheme::RibbonThemeOffice2021Blue };
     SARibbonSystemButtonBar* mWindowButtonGroup { nullptr };
+    bool mFrameBorderEnabled { false };  ///< 是否绘制 1px 窗口边框（默认关闭保持现行为）
+    QColor mFrameBorderColor;            ///< 自定义边框颜色，无效色表示跟随主题
 #if SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
     QWK::WidgetWindowAgent* mFramelessHelper { nullptr };
 #else
@@ -535,7 +572,130 @@ void SARibbonMainWindow::setRibbonTheme(SARibbonTheme theme)
         d_ptr->mCurrentRibbonTheme = theme;
         SA::applyRibbonTheme(this, ribbonBar(), theme);
         Q_EMIT ribbonThemeChanged(theme);
+        // 主题切换会重设样式表；边框色跟随主题时需重绘
+        if (d_ptr->mFrameBorderEnabled && !d_ptr->mFrameBorderColor.isValid()) {
+            update();
+        }
     }
+}
+
+/**
+ * \if ENGLISH
+ * @brief Checks whether the 1px window frame border is drawn
+ * @return true if the frame border is drawn
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 查询是否绘制 1px 窗口边框
+ * @return 绘制边框时返回 true
+ * \endif
+ */
+bool SARibbonMainWindow::isFrameBorderEnabled() const
+{
+    return d_ptr->mFrameBorderEnabled;
+}
+
+/**
+ * \if ENGLISH
+ * @brief Enables/disables drawing of the 1px window frame border
+ * @param on true to draw the border, false to keep the default appearance
+ * @details Useful for frameless windows placed over same-colored backgrounds where the
+ *          window boundary is otherwise invisible. Default is off.
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 开启/关闭 1px 窗口边框的绘制
+ * @param on true 绘制边框，false 保持默认外观
+ * @details 适用于无边框窗口落在同色背景（如同为白色的文档区或桌面）上边界不可辨的场景。默认关闭
+ * \endif
+ */
+void SARibbonMainWindow::setFrameBorderEnabled(bool on)
+{
+    if (d_ptr->mFrameBorderEnabled == on) {
+        return;
+    }
+    d_ptr->mFrameBorderEnabled = on;
+    Q_EMIT frameBorderEnabledChanged(on);
+    update();
+}
+
+/**
+ * \if ENGLISH
+ * @brief Gets the custom frame border color
+ * @return The custom color; an invalid QColor means "follow current theme"
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 获取自定义边框颜色
+ * @return 自定义颜色；无效的 QColor 表示"跟随当前主题"
+ * \endif
+ */
+QColor SARibbonMainWindow::frameBorderColor() const
+{
+    return d_ptr->mFrameBorderColor;
+}
+
+/**
+ * \if ENGLISH
+ * @brief Sets a custom frame border color
+ * @param color The color to use; pass an invalid QColor to follow the theme's border-color token
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 设置自定义边框颜色
+ * @param color 使用的颜色；传入无效 QColor 表示跟随主题的 border-color 色板
+ * \endif
+ */
+void SARibbonMainWindow::setFrameBorderColor(const QColor& color)
+{
+    if (d_ptr->mFrameBorderColor == color) {
+        return;
+    }
+    d_ptr->mFrameBorderColor = color;
+    Q_EMIT frameBorderColorChanged(color);
+    if (d_ptr->mFrameBorderEnabled) {
+        update();
+    }
+}
+
+/**
+ * \if ENGLISH
+ * @brief Draws the optional 1px frame border and then the default window content
+ * @param e Paint event
+ * @details The border is only drawn when isFrameBorderEnabled() is true. Color resolution order:
+ *          custom frameBorderColor() if valid, then the theme palette's "border-color" token,
+ *          finally a fallback of palette window color darkened.
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 绘制可选的 1px 边框，随后执行默认的窗口内容绘制
+ * @param e 绘制事件
+ * @details 仅当 isFrameBorderEnabled() 为真时绘制。取色顺序：自定义 frameBorderColor() 有效优先，
+ *          其次主题调色板的 border-color 色板，最后退回 palette 窗口色加深
+ * \endif
+ */
+void SARibbonMainWindow::paintEvent(QPaintEvent* e)
+{
+    if (d_ptr->mFrameBorderEnabled) {
+        QPainter painter(this);
+        QColor border = d_ptr->mFrameBorderColor;
+        if (!border.isValid()) {
+            // 跟随主题：从当前主题的调色板取 border-color token
+            SA::SARibbonThemePalette themePalette;
+            const QString palettePath = mainWindowThemePalettePath(d_ptr->mCurrentRibbonTheme);
+            if (!palettePath.isEmpty() && themePalette.loadFromFile(palettePath)) {
+                border = themePalette.color("border-color");
+            }
+        }
+        if (!border.isValid()) {
+            border = palette().color(QPalette::Window).darker(120);
+        }
+        QPen pen(border, 1);
+        painter.setPen(pen);
+        // rect().adjusted(0,0,-1,-1)：画在客户区内缘，画在 rect() 外侧会被裁掉
+        painter.drawRect(rect().adjusted(0, 0, -1, -1));
+    }
+    QMainWindow::paintEvent(e);
 }
 
 /**

@@ -167,3 +167,20 @@ In frameless mode (`UseRibbonFrame`), clicking (or right-clicking) the applicati
 
 !!! note
     This menu is only available in frameless mode (`UseRibbonFrame`) — in native frame mode (`UseNativeFrame`) the system menu is provided by the OS and the title icon is hidden.
+
+## Main Window Frame Border
+
+In frameless mode (`UseRibbonFrame`) the window boundary may be indistinguishable from a same-colored background (e.g., a white document area or desktop). An optional 1px frame border can be enabled:
+
+```cpp
+setFrameBorderEnabled(true);          // enable (default off, no impact on existing appearance)
+setFrameBorderColor(QColor(Qt::red)); // optional: custom color; pass an invalid QColor() to follow the theme
+```
+
+- **Default off**: without setting anything, the window looks exactly like previous versions;
+- **Color resolution order**: custom `frameBorderColor` (if valid) → the current theme palette's `border-color` token → a fallback of the palette window color darkened;
+- **Theme synchronization**: when following the theme, switching themes triggers a repaint automatically;
+- **Visible range**: the left/right edges and the bottom edge are fully visible (drawn inside the main window's reserved content margins); the top edge is covered by the title bar (the ribbon), whose own boundary serves as the visual edge;
+- **QWK path difference**: with QWindowKit enabled (`SARIBBON_USE_FRAMELESS_LIB=ON`) the window is handled by QWK's native frame mechanism and the self-drawn border may be covered by the system frame; prefer QWK's border capability on that path.
+
+Run the "window frame border" toggle in the **style** panel of the **other** tab in `example/MainWindowExample` to verify in real time.
