@@ -1,5 +1,7 @@
 #include <QtTest>
 #include <QApplication>
+#include <QComboBox>
+#include <QWidgetAction>
 #include "SARibbonButtonGroupWidget.h"
 #include "SARibbonQuickAccessBar.h"
 
@@ -45,6 +47,7 @@ private slots:
     void testInsertMiddleOrder();
     void testRemoveKeepsOrder();
     void testQuickAccessBarOrder();
+    void testMoveKeepsCustomWidgetState();
 };
 
 void SARibbonButtonGroupWidgetTest::testAppendOrder()
@@ -150,6 +153,45 @@ void SARibbonButtonGroupWidgetTest::testQuickAccessBarOrder()
     QCOMPARE(bar.actions(), QList<QAction*>({ a0, a1, a15, a3 }));
     const QList<int> xs = widgetXsInActionOrder(&bar);
     QVERIFY(isStrictlyIncreasing(xs));
+    bar.hide();
+}
+
+void SARibbonButtonGroupWidgetTest::testMoveKeepsCustomWidgetState()
+{
+    // GitHub #60 API 部分结论验证：move 用 removeAction+insertAction 组合表达时，
+    // QWidgetAction 承载的自定义控件状态是否保留（QToolBar 移除时会销毁自动创建的
+    // 按钮，再插入会重建；QWidgetAction 的 requestWidget/releaseWidget 应保住 widget 本体）
+    SARibbonButtonGroupWidget bar;
+    bar.resize(900, 30);
+    QAction* a1 = bar.addAction("A1");
+
+    QComboBox* combo    = new QComboBox(&bar);
+    combo->setObjectName("myCombo");
+    combo->addItems({ "x", "y", "z" });
+    combo->setCurrentIndex(2);  // 用户状态
+    QWidgetAction* wa = new QWidgetAction(&bar);
+    wa->setDefaultWidget(combo);
+    bar.addAction(wa);
+
+    QAction* a3 = bar.addAction("A3");
+    bar.show();
+    QApplication::processEvents();
+    ensureWideEnough(&bar);
+    QCOMPARE(bar.actions(), QList< QAction* >({ a1, wa, a3 }));
+
+    // move：把 wa 移到 a3 之后（remove + append）
+    bar.removeAction(wa);
+    bar.addAction(wa);
+    QApplication::processEvents();
+
+    QCOMPARE(bar.actions(), QList< QAction* >({ a1, a3, wa }));
+    // 自定义 widget 本体保留且状态不丢
+    QWidget* w = bar.widgetForAction(wa);
+    QVERIFY2(w != nullptr, "custom widget missing after move");
+    QCOMPARE(w->objectName(), QStringLiteral("myCombo"));
+    QComboBox* moved = qobject_cast< QComboBox* >(w);
+    QVERIFY(moved != nullptr);
+    QCOMPARE(moved->currentIndex(), 2);
     bar.hide();
 }
 

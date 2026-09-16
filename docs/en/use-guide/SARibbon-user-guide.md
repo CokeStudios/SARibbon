@@ -147,3 +147,22 @@ gallery->getPopupViewPort()->addWidget(custom, tr("custom widgets"));  // second
 - **Ownership and release**: widgets in Way 1 are carried by a `QWidgetAction` and are **not** deleted on removal (the parent is explicitly set to the panel) — manage their lifetime yourself; widgets in Way 2 are managed by the viewport's content layout;
 - **`Qt::WA_LayoutUsesWidgetRect`**: already set by the framework when creating panel items; no manual handling is needed;
 - See the **gallery widgets** panel in the **other** tab of `example/MainWindowExample` for a complete runnable example (demonstrating both ways).
+
+## Reordering Actions in Button Groups and the Quick Access Bar
+
+`SARibbonButtonGroupWidget` and `SARibbonQuickAccessBar` both inherit `QToolBar`; use the native Qt interfaces for insertion and reordering (no extra API needed):
+
+```cpp
+SARibbonQuickAccessBar* quickBar = ribbonBar()->quickAccessBar();
+// append
+quickBar->addAction(action);
+// insert before beforeAction (prepend or middle insert)
+quickBar->insertAction(beforeAction, action);
+// remove
+quickBar->removeAction(action);
+// move = remove + re-insert (custom widgets carried by QWidgetAction keep their state)
+quickBar->removeAction(action);
+quickBar->insertAction(targetAction, action);
+```
+
+The ordering semantics of `insertAction(before, ...)` and the state preservation of custom-widget actions (`QWidgetAction`) across moves are locked by the regression test `tests/SARibbonButtonGroupWidgetTest.cpp`.

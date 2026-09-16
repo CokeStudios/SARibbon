@@ -197,3 +197,22 @@ gallery->getPopupViewPort()->addWidget(custom, tr("custom widgets"));  // 第二
 - **所有权与释放**：方式一的控件经 `QWidgetAction` 承载，移除时**不会**被删除（父对象被显式设为 panel），需要自行管理生命周期；方式二的控件由 viewport 内容布局管理；
 - **`Qt::WA_LayoutUsesWidgetRect`**：框架在创建面板项时已自动设置，无需手工处理；
 - 完整可运行示例见 `example/MainWindowExample` 的 **other** 标签页 **gallery widgets** 面板（同时演示两种方式）。
+
+## 按钮群与快速访问栏的动作顺序调整
+
+`SARibbonButtonGroupWidget` 与 `SARibbonQuickAccessBar` 均继承自 `QToolBar`，动作的插入与顺序调整使用 Qt 原生接口即可（无需额外 API）：
+
+```cpp
+SARibbonQuickAccessBar* quickBar = ribbonBar()->quickAccessBar();
+// 追加
+quickBar->addAction(action);
+// 在 beforeAction 之前插入（支持头插、中间插）
+quickBar->insertAction(beforeAction, action);
+// 移除
+quickBar->removeAction(action);
+// 移动 = 移除 + 再插入（widget 承载的自定义控件状态不会丢失）
+quickBar->removeAction(action);
+quickBar->insertAction(targetAction, action);
+```
+
+`insertAction(before, ...)` 的顺序语义、含自定义控件（`QWidgetAction`）的动作参与移动后的状态保留，均由回归测试 `tests/SARibbonButtonGroupWidgetTest.cpp` 固化。
