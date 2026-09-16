@@ -153,3 +153,16 @@ void MainWindow::onActionCustomizeTriggered()
 
 !!! tip "提示"
     如果你希望把自定义对话框嵌入到自己的设置页面中，可以使用 `SARibbonCustomizeWidget` 代替 `SARibbonCustomizeDialog`，两者的 API 基本一致。
+
+## 自定义快速访问工具栏
+
+在"接口自定义"对话框中，结果树上方有三个单选项：**主选项卡**、**所有选项卡**、**快速访问栏**。选择"快速访问栏"后，结果树以快速访问栏为根展示其中的动作，操作方式与 Ribbon 定制完全一致：
+
+- **添加**：在左侧动作列表选中动作，在结果树中选中快速访问栏（或其中某个动作），点击"添加 >>"；
+- **移除**：选中快速访问栏中的动作，点击"<< 移除"；
+- **调整顺序**：选中动作后用"上移/下移"按钮。
+
+快速访问栏的定制数据与 Ribbon 定制数据走**同一套保存/加载**（`toXml`/`fromXml`），无需额外配置；旧版本保存的 XML 文件不包含快速访问栏数据，可直接读入不受影响。
+
+!!! note "前提"
+    加入快速访问栏的动作需要先注册到 `SARibbonActionsManager`（可通过 `autoRegisteActions` 或手动 `registeAction`），并且调用 `SARibbonCustomizeData::setCanCustomize(action)` 打开可定制标记，才会出现在可操作列表中。运行 `example/MainWindowExample` 的自定义对话框可体验完整流程。

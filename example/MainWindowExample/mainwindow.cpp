@@ -17,6 +17,7 @@
 #include "SARibbonMenu.h"
 #include "SARibbonPanel.h"
 #include "SARibbonQuickAccessBar.h"
+#include "SARibbonCustomizeData.h"
 #include "SARibbonToolButton.h"
 #include "SARibbonCtrlContainer.h"
 #include "colorWidgets/SAColorGridWidget.h"
@@ -2883,7 +2884,8 @@ void MainWindow::createQuickAccessBar()
 {
     SARibbonQuickAccessBar* quickAccessBar = ribbonBar()->quickAccessBar();
 
-    quickAccessBar->addAction(createAction("save", ":/icon/icon/save.svg", "save-quickbar"));
+    QAction* actionSave = createAction("save", ":/icon/icon/save.svg", "save-quickbar");
+    quickAccessBar->addAction(actionSave);
     quickAccessBar->addSeparator();
 
     QAction* actionUndo = createAction("undo", ":/icon/icon/undo.svg");
@@ -3030,6 +3032,19 @@ void MainWindow::createActionsManager()
     mActionsManager->registeAction(mOtherAction5, mTagForActionText);
 
     mActionsManager->registeAction(mOtherActionIcon1, mTagForActionIcon);
+
+    // 快速访问栏的动作允许自定义（issue #67）：注册进动作管理器，
+    // 使自定义对话框的"快速访问栏"视图可检索并增删移这些动作
+    // （createQuickAccessBar 先于本函数执行，此处从快速访问栏遍历注册）
+    if (SARibbonQuickAccessBar* quickAccessBar = ribbonBar()->quickAccessBar()) {
+        const QList< QAction* > quickActions = quickAccessBar->actions();
+        for (QAction* act : quickActions) {
+            if (!act->isSeparator()) {
+                SARibbonCustomizeData::setCanCustomize(act);
+                mActionsManager->registeAction(act, SARibbonActionsManager::CommonlyUsedActionTag);
+            }
+        }
+    }
 
     mActionsManager->setTagName(SARibbonActionsManager::CommonlyUsedActionTag, tr("in common use"));
     mActionsManager->setTagName(mTagForActionText, tr("no icon action"));
