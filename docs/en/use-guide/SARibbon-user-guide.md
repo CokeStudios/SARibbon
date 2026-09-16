@@ -73,3 +73,37 @@ The traditional menubar+toolbar cannot be directly converted into a ribbon inter
 | Gallery | `SARibbonGallery` | Grid-style visual selector (e.g., styles in Word) |
 | Quick Access Bar | `SARibbonQuickAccessBar` | Toolbar at the very top for frequently used actions |
 | Application Button | `SARibbonApplicationButton` | The "File" button at the top-left corner |
+
+## Automation Testing Integration (Button Identification Convention)
+
+When using automation testing tools such as Squish, TestComplete, or uiautomator, it is recommended to locate Ribbon buttons by **objectName**.
+
+### Convention
+
+- The `objectName` of a panel button (`SARibbonToolButton`) is automatically inherited from the `QAction` it carries:
+    1. If the `QAction` has an `objectName`, the button uses it (**values explicitly set by the user take priority and are never overwritten**);
+    2. Otherwise, if the action has text, the button falls back to `QAction::text()` (note: multiple actions with the same text produce duplicate names; setting objectName explicitly is recommended for automation);
+- The button's `accessibleName` (used by screen readers / assistive technology) is also auto-filled from the action text;
+- The action key assigned by `SARibbonActionsManager` can also be used for identification (see [Interface Customization and Persistence](persistence-configuration-ribbon.md)).
+
+### Example
+
+```cpp
+QAction* saveAction = new QAction(QIcon(":/save.png"), tr("Save"), this);
+saveAction->setObjectName("actionSave");  // automation tools locate the button by this name
+panel->addLargeAction(saveAction);
+```
+
+Lookup example on the Squish side:
+
+```python
+# Find by name (recommended)
+saveButton = waitForObject({"objectName": "actionSave", "type": "SARibbonToolButton"})
+# Hierarchy path + name (to handle duplicate names from text fallback)
+btn = waitForObject({"container": ribbonPanel, "objectName": "Save"})
+```
+
+### Recommended Rules
+
+- Use only letters, digits, and underscores in objectName; avoid spaces and non-ASCII characters (some tools have escaping difficulties);
+- Name the actions that need automation coverage centrally, in `main()` or in the window constructor; do not rely on the text fallback.

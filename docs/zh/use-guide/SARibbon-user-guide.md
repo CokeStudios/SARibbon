@@ -123,3 +123,37 @@ int main(int argc, char* argv[])
 | 上下文标签 | `SARibbonContextCategory` | 按需显示的特殊标签页 |
 | 画廊控件 | `SARibbonGallery` | 以网格形式展示图标选项的控件 |
 | 快速访问栏 | `SARibbonQuickAccessBar` | 标题栏上的快捷操作工具栏 |
+
+## 自动化测试对接（按钮定位约定）
+
+使用 Squish、TestComplete、uiautomator 等自动化测试工具时，推荐通过 **objectName** 定位 Ribbon 上的按钮。
+
+### 约定
+
+- 面板按钮（`SARibbonToolButton`）的 `objectName` 自动从其承载的 `QAction` 继承：
+    1. `QAction` 设置了 `objectName` → 按钮使用该名字（**用户显式设置的值优先，不会被覆盖**）；
+    2. 未设置但有文字 → 按钮以 `QAction::text()` 兜底（注意：多个 action 同文本会产生重名，自动化场景建议显式设置 objectName）；
+- 按钮的 `accessibleName`（读屏器/辅助技术使用）同样以 action 文本自动填充；
+- `SARibbonActionsManager` 分配的 action key 也可用于定位（见[接口自定义与持久化](persistence-configuration-ribbon.md)）。
+
+### 示例
+
+```cpp
+QAction* saveAction = new QAction(QIcon(":/save.png"), tr("Save"), this);
+saveAction->setObjectName("actionSave");  // 自动化工具按此名字定位按钮
+panel->addLargeAction(saveAction);
+```
+
+Squish 侧的查找示例：
+
+```python
+# 按名称查找（推荐）
+saveButton = waitForObject({"objectName": "actionSave", "type": "SARibbonToolButton"})
+# 层级路径 + 名称（应对文本兜底产生的重名）
+btn = waitForObject({"container": ribbonPanel, "objectName": "Save"})
+```
+
+### 建议规则
+
+- objectName 只用字母、数字与下划线，避免空格与中文（部分工具转义困难）；
+- 在 `main()` 或窗口构造中集中为需要自动化覆盖的 action 命名，不要依赖文本兜底。

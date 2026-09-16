@@ -674,7 +674,10 @@ QAction* SARibbonPanel::addWidget(QWidget* w, SARibbonPanelItem::RowProportion r
     });
     action->setIcon(w->windowIcon());
     action->setText(w->windowTitle());
-    action->setObjectName("action." + w->objectName());
+    // 仅在未设置时填充默认名，与 addMenu 行为对齐，避免覆盖用户显式设置的值
+    if (action->objectName().isEmpty()) {
+        action->setObjectName("action." + w->objectName());
+    }
     w->setAttribute(Qt::WA_Hover);
     setActionRowProportionProperty(action, rowProportion);
     addAction(action);

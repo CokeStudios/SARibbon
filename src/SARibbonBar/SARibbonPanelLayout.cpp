@@ -708,6 +708,16 @@ SARibbonPanelItem* SARibbonPanelLayout::createItem(QAction* action, SARibbonPane
         // 根据QAction的属性设置按钮的大小
 
         QObject::connect(button, &SARibbonToolButton::triggered, panel, &SARibbonPanel::actionTriggered);
+        // automation 标识同步（issue #121）：action 有 objectName 则继承，否则以 action 文本兜底；
+        // 用户在按钮上手工设置的名字仅在 action 两个来源都为空时保留
+        if (!action->objectName().isEmpty()) {
+            button->setObjectName(action->objectName());
+        } else if (!action->text().isEmpty()) {
+            button->setObjectName(action->text());
+        }
+        if (button->accessibleName().isEmpty() && !action->text().isEmpty()) {
+            button->setAccessibleName(action->text());
+        }
         widget = button;
     }
     // 这时总会有widget
