@@ -16,6 +16,13 @@
 #endif
 
 #if SARibbonPanelLayout_DEBUG_PRINT
+#include <QDebug>
+// 调试插桩：日志序号 + doLayout嵌套深度，用于观察布局循环
+static int s_p_debug_seq                  = 0;
+static thread_local int s_p_doLayoutDepth = 0;
+#endif
+
+#if SARibbonPanelLayout_DEBUG_PRINT
 #ifndef SARibbonPanelLayout_HELP_DRAW_RECT
 #define SARibbonPanelLayout_HELP_DRAW_RECT(p, rect)                                                                    \
     do {                                                                                                               \
@@ -348,8 +355,17 @@ bool SARibbonPanelLayout::isEmpty() const
  */
 void SARibbonPanelLayout::invalidate()
 {
+#if SARibbonPanelLayout_DEBUG_PRINT
+    // 注意：布局构造/析构早期也会触发invalidate，此时面板可能处于半构造状态，
+    // 严禁访问面板成员函数（如panelName()会解引用尚未初始化的d_ptr），只取objectName()
+    QWidget* pw = parentWidget();
+    qDebug() << "[seq" << ++s_p_debug_seq << "] SARibbonPanelLayout::invalidate() [" << this << "] panel=" << pw
+             << " obj=\"" << (pw ? pw->objectName() : QString()) << "\", inDoLayout=" << mInDoLayout
+             << (mInDoLayout ? "  <== invalidate DURING doLayout (loop fuel!)" : "");
+#endif
     mDirty = true;
     mButtonSizeHintCache.clear();
+    mButtonSizeHintCacheLargeHeight = -1;
     QLayout::invalidate();
 }
 
@@ -577,10 +593,31 @@ void SARibbonPanelLayout::invalidateButtonSizeHintCache(QWidget* w)
 void SARibbonPanelLayout::doLayout()
 {
 #if SARibbonPanelLayout_DEBUG_PRINT
-    if (SARibbonPanel* panel = ribbonPanel()) {
-        qDebug() << "| |-SARibbonPanelLayout layoutActions,panel name = " << panel->panelName();
-    }
+    ++s_p_doLayoutDepth;
+    struct DebugDoLayoutGuard
+    {
+        ~DebugDoLayoutGuard()
+        {
+            --s_p_doLayoutDepth;
+        }
+    } debugGuard;
+    // doLayout执行时面板必然已构造完成，但统一使用objectName避免任何半构造访问风险
+    QWidget* debugPanel = parentWidget();
+    qDebug() << "[seq" << ++s_p_debug_seq << "] --> SARibbonPanelLayout::doLayout() [" << this << "] panel=" << debugPanel
+             << " obj=\"" << (debugPanel ? debugPanel->objectName() : QString()) << "\", dirty=" << mDirty
+             << ", doLayoutDepth=" << s_p_doLayoutDepth;
 #endif
+    // 重入守卫标志：本函数内对子控件执行show()/hide()时，Qt会同步向上activate本布局，
+    // setGeometry()检测到此标志后会跳过该同步重入（几何已是目标值，Qt随后会投递LayoutRequest）
+    struct InDoLayoutGuard
+    {
+        SARibbonPanelLayout* self;
+        ~InDoLayoutGuard()
+        {
+            self->mInDoLayout = false;
+        }
+    } inDoLayoutGuard { this };
+    mInDoLayout = true;
     if (isDirty()) {
         updateGeomArray();
     }
@@ -607,12 +644,24 @@ void SARibbonPanelLayout::doLayout()
     // 当布局发生在窗口显示之前时isVisible()恒为false，会跳过hide()导致控件未打上显式隐藏标记，
     // 窗口显示后该控件将携带旧几何残留显示
     for (QWidget* w : sa_as_const(showWidgets)) {
-        if (w->isHidden())
+        if (w->isHidden()) {
+#if SARibbonPanelLayout_DEBUG_PRINT
+            // 真实的hidden->show迁移会触发QWidgetPrivate::setVisible->updateGeometry_helper(true)
+            // ->同步invalidate父布局(本布局)并触发activate重入，这是循环的燃料
+            qDebug() << "[seq" << ++s_p_debug_seq << "]     show(" << w->metaObject()->className() << ",\""
+                     << w->objectName() << "\") " << w;
+#endif
             w->show();
+        }
     }
     for (QWidget* w : sa_as_const(hideWidgets)) {
-        if (!w->isHidden())
+        if (!w->isHidden()) {
+#if SARibbonPanelLayout_DEBUG_PRINT
+            qDebug() << "[seq" << ++s_p_debug_seq << "]     hide(" << w->metaObject()->className() << ",\""
+                     << w->objectName() << "\") " << w;
+#endif
             w->hide();
+        }
     }
 
     // 布局label
@@ -772,6 +821,12 @@ void SARibbonPanelLayout::updateGeomArray(const QRect& setrect)
     const int largeHeight = qMax(height - mag.bottom() - mag.top() - titleH - titleSpace, 2);  // 大按钮高度不小于2
 
     mLargeHeight = largeHeight;
+    // sizeHint缓存和大按钮高度绑定：高度变化（panel首次获得真实几何、调整category高度或
+    // panel标题高度等）时必须丢弃缓存，否则按钮宽度会一直沿用旧高度算出来的结果
+    if (largeHeight != mButtonSizeHintCacheLargeHeight) {
+        mButtonSizeHintCache.clear();
+        mButtonSizeHintCacheLargeHeight = largeHeight;
+    }
     // 计算smallHeight的高度
     const int smallHeight = qMax((largeHeight - (rowCount - 1) * spacingRow) / rowCount, 1);
     // Medium行的y位置
@@ -1308,9 +1363,9 @@ void SARibbonPanelLayout::recalcExpandGeomArray(const QRect& setrect)
         }
     }
 #if SARibbonPanelLayout_DEBUG_PRINT
-    qDebug() << "| |-SARibbonPanelLayout recalcExpandGeomArray(" << setrect
-             << ") panelName=" << ribbonPanel()->panelName()  //
-             << ",expandwidth=" << expandwidth                //
+    qDebug() << "| |-SARibbonPanelLayout recalcExpandGeomArray(" << setrect << ") panelName="
+             << (ribbonPanel() ? ribbonPanel()->panelName() : QString())  //
+             << ",expandwidth=" << expandwidth                            //
         ;
 #endif
 }
@@ -1775,7 +1830,24 @@ int SARibbonPanelLayout::largeButtonHeight() const
 
 void SARibbonPanelLayout::setGeometry(const QRect& rect)
 {
+    // 重入守卫：doLayout()对子控件执行show()时，QWidgetPrivate::setVisible会同步invalidate
+    // 本布局并立即调用QLayout::activate()->doResize()->setGeometry()，形成重排循环。
+    // 此时当前几何即为目标几何，本次同步重入直接跳过；布局已标记为脏，Qt投递的
+    // LayoutRequest事件会再做一次干净的重排，无需在此同步执行
+    if (mInDoLayout) {
+#if SARibbonPanelLayout_DEBUG_PRINT
+        qWarning() << "[GUARD] SARibbonPanelLayout::setGeometry skipped re-entrant call from doLayout (panel="
+                   << parentWidget() << ", rect=" << rect << ")";
+#endif
+        return;
+    }
     QRect old = geometry();
+#if SARibbonPanelLayout_DEBUG_PRINT
+    QWidget* pw = parentWidget();
+    qDebug() << "[seq" << ++s_p_debug_seq << "] SARibbonPanelLayout::setGeometry(" << rect << ") [" << this << "] panel=" << pw
+             << " obj=\"" << (pw ? pw->objectName() : QString()) << "\", old=" << old << ", sameRect=" << (old == rect)
+             << ", dirty=" << mDirty;
+#endif
     // 几何未变且布局不脏时才可跳过；布局脏（如action显隐变化触发invalidate）时即使几何
     // 相同也必须重新执行doLayout，否则显隐/位置变化不会被应用
     if ((old == rect) && !isDirty()) {
@@ -1784,9 +1856,6 @@ void SARibbonPanelLayout::setGeometry(const QRect& rect)
     if (rect.width() <= 0 || rect.height() <= 0) {
         return;
     }
-#if SARibbonPanelLayout_DEBUG_PRINT
-    qDebug() << "| |----->SARibbonPanelLayout.setGeometry(" << rect << "(" << ribbonPanel()->panelName() << ")=======";
-#endif
     QLayout::setGeometry(rect);
     mDirty = false;
     updateGeomArray(rect);

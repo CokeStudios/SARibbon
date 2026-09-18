@@ -12,6 +12,7 @@
 #endif
 #if SARibbonCategoryLayout_DEBUG_PRINT
 #include <QDebug>
+static int s_debug_seq = 0;  ///< 全局调用序号，用于日志关联与观察循环是否持续增长
 #endif
 /**
  * \if ENGLISH
@@ -78,6 +79,14 @@ public:
     // 动画相关
     QPropertyAnimation* mScrollAnimation { nullptr };
     int mTargetScrollPosition { 0 };
+    bool mInDoLayout { false };  ///< doLayout执行期间为true；子控件show()会让Qt同步activate本布局造成重入，用此标志跳过
+#if SARibbonCategoryLayout_DEBUG_PRINT
+    // 调试插桩：重入深度、doLayout是否在栈上、setGeometry收到相同rect的连续次数
+    int mDebugReentryDepth { 0 };
+    bool mDebugInDoLayout { false };
+    int mDebugSameRectCount { 0 };
+    QRect mDebugLastRect;
+#endif
 };
 
 //=============================================================
@@ -370,6 +379,16 @@ Qt::Orientations SARibbonCategoryLayout::expandingDirections() const
 
 void SARibbonCategoryLayout::invalidate()
 {
+#if SARibbonCategoryLayout_DEBUG_PRINT
+    // 记录invalidate来源；doLayout在栈上时发生的invalidate是循环的燃料，
+    // 典型来源：doLayout->show()->QWidgetPrivate::setVisible->updateGeometry_helper->父布局invalidate。
+    // 注意：invalidate可能在category半构造/半析构时触发，只取QObject级信息（objectName），勿调categoryName()
+    QWidget* debugCat = parentWidget();
+    qDebug() << "[seq" << ++s_debug_seq << "] SARibbonCategoryLayout::invalidate() [" << this << "] category=" << debugCat
+             << " obj=\"" << (debugCat ? debugCat->objectName() : QString()) << "\", reentryDepth="
+             << d_ptr->mDebugReentryDepth << ", inDoLayout=" << d_ptr->mDebugInDoLayout
+             << (d_ptr->mDebugInDoLayout ? "  <== invalidate DURING doLayout (loop fuel!)" : "");
+#endif
     mCachedSizeHint    = QSize();
     mCachedMinSizeHint = QSize();
     d_ptr->mDirty      = true;
@@ -438,11 +457,12 @@ void SARibbonCategoryLayout::updateGeometryArr()
     bool needsScrolling = (total > categoryWidth);
 
 #if SARibbonCategoryLayout_DEBUG_PRINT
-    qDebug() << "SARibbonCategoryLayout::updateGeometryArr" << "\n  |-category name=" << category->categoryName()  //
-             << "\n  |-category height=" << height                                                                 //
-             << "\n  |-totalSizeHintWidth=" << total                                                               //
-             << "\n  |-y=" << y                                                                                    //
-             << "\n  |-expandWidth:" << expandWidth                                                                //
+    qDebug() << "[seq" << ++s_debug_seq << "] SARibbonCategoryLayout::updateGeometryArr"   //
+             << "\n  |-category name=" << category->categoryName()                         //
+             << "\n  |-category height=" << height                                          //
+             << "\n  |-totalSizeHintWidth=" << total                                        //
+             << "\n  |-y=" << y                                                             //
+             << "\n  |-expandWidth:" << expandWidth                                         //
              << "\n  |-mag=" << mag;
 #endif
 
@@ -584,6 +604,31 @@ void SARibbonCategoryLayout::updateGeometryArr()
  */
 void SARibbonCategoryLayout::doLayout()
 {
+#if SARibbonCategoryLayout_DEBUG_PRINT
+    ++d_ptr->mDebugReentryDepth;
+    qDebug() << "[seq" << ++s_debug_seq << "] --> SARibbonCategoryLayout::doLayout() [" << this << "] category=" << parentWidget()
+             << ", dirty=" << d_ptr->mDirty
+             << ", reentryDepth=" << d_ptr->mDebugReentryDepth;
+    struct DebugDoLayoutGuard
+    {
+        SARibbonCategoryLayout::PrivateData* d;
+        ~DebugDoLayoutGuard()
+        {
+            --d->mDebugReentryDepth;
+        }
+    } debugGuard { d_ptr.get() };
+#endif
+    // 重入守卫标志：本函数内对子panel执行show()/hide()时，Qt会同步向上activate本布局，
+    // setGeometry()检测到此标志后会跳过该同步重入（几何已是目标值，Qt随后会投递LayoutRequest）
+    struct InDoLayoutGuard
+    {
+        SARibbonCategoryLayout::PrivateData* d;
+        ~InDoLayoutGuard()
+        {
+            d->mInDoLayout = false;
+        }
+    } inDoLayoutGuard { d_ptr.get() };
+    d_ptr->mInDoLayout = true;
     if (d_ptr->mDirty) {
         updateGeometryArr();
     }
@@ -608,9 +653,16 @@ void SARibbonCategoryLayout::doLayout()
     QList< QWidget* > showWidgets, hideWidgets;
 #if SARibbonCategoryLayout_DEBUG_PRINT
     int debug_i__(0);
-    qDebug() << "SARibbonCategoryLayout::doLayout(),name=" << category->categoryName();
 #endif
-    const int itemsize = d_ptr->mItemList.size();
+    // 先确定最后一个可见panel的索引：其分割线不显示（避免最右侧出现悬空分割线）
+    int lastVisibleIndex = -1;
+    const int itemsize   = d_ptr->mItemList.size();
+    for (int i = itemsize - 1; i >= 0; --i) {
+        if (!d_ptr->mItemList[ i ]->isEmpty()) {
+            lastVisibleIndex = i;
+            break;
+        }
+    }
     for (int i = 0; i < itemsize; ++i) {
         SARibbonCategoryLayoutItem* item = d_ptr->mItemList[ i ];
         if (item->isEmpty()) {
@@ -632,7 +684,16 @@ void SARibbonCategoryLayout::doLayout()
             showWidgets << item->widget();
             if (item->separatorWidget) {
                 item->separatorWidget->setGeometry(item->mWillSetSeparatorGeometry);
-                showWidgets << item->separatorWidget;
+                // 每个控件的显隐决策必须唯一（QToolBarLayout语义）：同一轮布局内一个控件
+                // 只进show或hide一个列表。最后可见panel的分割线只hide，其余panel的分割线只show。
+                // 若同一分割线先进show列表又进hide列表，每轮布局都会先show再hide产生一次真实
+                // 显隐迁移，而真实迁移会同步invalidate本布局并触发Qt立即activate重排，形成
+                // doLayout->show->activate->doLayout的死循环
+                if (i == lastVisibleIndex) {
+                    hideWidgets << item->separatorWidget;
+                } else {
+                    showWidgets << item->separatorWidget;
+                }
             }
 #if SARibbonCategoryLayout_DEBUG_PRINT
             qDebug() << "  |-[" << debug_i__ << "]panelName(" << item->toPanelWidget()->panelName()
@@ -640,17 +701,6 @@ void SARibbonCategoryLayout::doLayout()
                      << ",WillSetSeparatorGeometry:" << item->mWillSetSeparatorGeometry;
             ++debug_i__;
 #endif
-        }
-    }
-
-    // Hide the separator of the last visible panel
-    for (int i = itemsize - 1; i >= 0; --i) {
-        SARibbonCategoryLayoutItem* item = d_ptr->mItemList[ i ];
-        if (!item->isEmpty()) {
-            if (item->separatorWidget) {
-                hideWidgets << item->separatorWidget;
-            }
-            break;
         }
     }
 
@@ -668,15 +718,24 @@ void SARibbonCategoryLayout::doLayout()
     // 窗口显示后该控件将携带旧几何残留显示
     for (QWidget* w : sa_as_const(showWidgets)) {
         if (w->isHidden()) {
+#if SARibbonCategoryLayout_DEBUG_PRINT
+            // 真实的hidden->show迁移会触发QWidgetPrivate::setVisible->updateGeometry_helper(true)
+            // ->同步invalidate父布局(本布局)并触发activate重入，这是循环的燃料
+            qDebug() << "[seq" << ++s_debug_seq << "]     show(" << w->metaObject()->className() << ",\"" << w->objectName()
+                     << "\") " << w << ", will sync-invalidate THIS layout via updateGeometry_helper";
+#endif
             w->show();
         }
     }
     for (QWidget* w : sa_as_const(hideWidgets)) {
         if (!w->isHidden()) {
+#if SARibbonCategoryLayout_DEBUG_PRINT
+            qDebug() << "[seq" << ++s_debug_seq << "]     hide(" << w->metaObject()->className() << ",\"" << w->objectName()
+                     << "\") " << w;
+#endif
             w->hide();
         }
     }
-    // 最后一个分割线隐藏
 }
 
 /**
@@ -1311,16 +1370,37 @@ void SARibbonCategoryLayout::onRightScrollButtonClicked()
 
 void SARibbonCategoryLayout::setGeometry(const QRect& rect)
 {
+    // 重入守卫：doLayout()对子panel执行show()时，QWidgetPrivate::setVisible会同步
+    // invalidate本布局并立即调用QLayout::activate()->doResize()->setGeometry()，形成
+    // doLayout->show->setGeometry->doLayout的循环（该循环曾导致每帧数千次重排）。
+    // 此时当前几何即为目标几何，本次同步重入直接跳过；布局已标记为脏，Qt投递的
+    // LayoutRequest事件会再做一次干净的重排，无需在此同步执行
+    if (d_ptr->mInDoLayout) {
+#if SARibbonCategoryLayout_DEBUG_PRINT
+        qWarning() << "[GUARD] SARibbonCategoryLayout::setGeometry skipped re-entrant call from doLayout (category="
+                   << parentWidget() << ", rect=" << rect << ")";
+#endif
+        return;
+    }
     QRect old = geometry();
+#if SARibbonCategoryLayout_DEBUG_PRINT
+    const bool sameRect = (old == rect);
+    if (sameRect) {
+        ++d_ptr->mDebugSameRectCount;
+    } else {
+        d_ptr->mDebugSameRectCount = 0;
+        d_ptr->mDebugLastRect      = rect;
+    }
+    qDebug() << "[seq" << ++s_debug_seq << "] SARibbonCategoryLayout::setGeometry(" << rect << ") [" << this
+             << "] category=" << parentWidget() << ", old=" << old << ", sameRect=" << sameRect
+             << ", sameRectCount=" << d_ptr->mDebugSameRectCount << ", dirty=" << d_ptr->mDirty
+             << ", reentryDepth=" << d_ptr->mDebugReentryDepth;
+#endif
     // 几何未变且布局不脏时才可跳过；布局脏（如panel显隐变化触发invalidate）时即使几何
     // 相同也必须重新执行doLayout，否则显隐/位置变化不会被应用
     if ((old == rect) && !d_ptr->mDirty) {
         return;
     }
-#if SARibbonCategoryLayout_DEBUG_PRINT
-    qDebug() << "===========SARibbonCategoryLayout.setGeometry(" << rect << "(" << ribbonCategory()->categoryName()
-             << ")=======";
-#endif
     QLayout::setGeometry(rect);
     d_ptr->mDirty = false;
     updateGeometryArr();

@@ -19,8 +19,30 @@
   文字宽度——典型现象：程序启动后切换到第二个及以后的页签，其中不含 Gallery 的
   面板上大按钮被压得极窄（如单字符按钮仅约 17px），而主页与含 Gallery 的面板正常。
   现在最小宽度改回基于字体行高推算，与面板几何无关，脏缓存问题随之消失；
+- 修复：大按钮宽高比（`buttonMaximumAspectRatio`）首次布局时不生效的问题（与上条同源）。
+  宽度上限与是否换行取自「面板大按钮高度 × 宽高比」，而这个高度读的是面板的实时几何；
+  若 category/panel 在加入 `SARibbonBar` 之前就被填充完毕（MainWindowExample 的 Other
+  页签即如此，此时它们还是 640x480 的顶层窗口），sizeHint 会按 460 多的高度算出
+  “不用换行 + 单行全宽”，并被按钮与面板布局两层缓存固化：面板拿到真实几何后不再重算，
+  长文本大按钮因此单行显示、宽度远超上限，只有调整 Panel Title Height 或两个比例参数
+  才会恢复。现在按钮的 sizeHint 与其所依据的大按钮高度绑定，面板布局的 sizeHint 缓存也
+  按大按钮高度失效，高度一旦变化（首次真实布局、调整 category 高度、调整面板标题高度）
+  就按新高度重算；已由回归测试固化（`SARibbonLargeButtonAspectRatioTest`）；
 - 确认 #101：工具按钮文字颜色取自调色板前景角色，样式表中设置的 `color` 属性可正常生效，已由回归测试固化，防止后续改动破坏；
 - 内部：新增系统按钮栏几何回归测试（最小化/最大化/关闭按钮在不同窗口宽度、极窄宽度、左右到右布局方向、最大化还原、宽度比例设置下的锚定边与顺序断言），防止后续边框与拖动相关改动复发历史按钮位置问题；
+- 修复：`SARibbonCategoryLayout` 布局重排死循环（2.9.4 引入的回归，外部反馈于 CutMaster）。
+  `doLayout()` 对 panel 分割线的显隐决策不唯一——最后一个可见 panel 的分割线同时进入
+  show 与 hide 两个列表，每轮布局都对同一条分割线先 `show()` 再 `hide()`；而真实显隐
+  迁移会经 `QWidgetPrivate::setVisible -> updateGeometry_helper` 同步 invalidate 父布局
+  并立即触发 `QLayout::activate -> doResize -> setGeometry` 重入，形成
+  `doLayout -> show -> activate -> setGeometry -> doLayout` 的自持循环（实测 MainWindowExample
+  每秒重排数千次，日志量 130MB/12s，调用栈与外部反馈完全一致）。现对齐 QToolBarLayout
+  的收敛语义：每轮布局中一个控件只进 show 或 hide 单个列表（最后可见 panel 的分割线固定
+  只 hide）；并为 `SARibbonCategoryLayout/SARibbonPanelLayout` 的 `setGeometry()` 增加
+  doLayout 重入守卫——布局执行期间的同步重入直接跳过，由 Qt 投递的 LayoutRequest 事件
+  完成后续重排。修复后循环归零，每条分割线的显隐操作恰好一次（3 显示 + 1 隐藏，
+  "最后 panel 无悬空分割线"语义不变）；2.9.4 修复的 action 隐藏残留问题不受影响
+  （`isHidden()` 判断保留）；
 
 ## 2026-09-10 -> 2.9.4
 

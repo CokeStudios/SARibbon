@@ -1693,6 +1693,11 @@ void SARibbonPanel::actionEvent(QActionEvent* e)
         // 仅updateGeometry()只会通知父布局尺寸提示变化，面板自身布局不会重排，
         // 会导致运行时切换action显隐后按钮残留旧几何；
         // 这里显式失效并激活面板布局（invalidate会一并清除按钮sizeHint缓存）
+#if SARIBBONPANEL_DEBUG_PRINT
+        qDebug() << "[SARibbonPanel::actionEvent] ActionChanged, panel=" << panelName()
+                 << ", action text=\"" << (action ? action->text() : QString()) << "\", visible="
+                 << (action ? action->isVisible() : false);
+#endif
         if (SARibbonPanelLayout* lay = panelLayout()) {
             lay->invalidate();
             lay->activate();
