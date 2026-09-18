@@ -1,4 +1,4 @@
-﻿#include <QtTest>
+#include <QtTest>
 #include <QApplication>
 #include <QBuffer>
 #include <QByteArray>
@@ -24,7 +24,9 @@ QByteArray datasToXmlBytes(const QList< SARibbonCustomizeData >& cds)
     QBuffer buf(&bytes);
     buf.open(QIODevice::WriteOnly);
     QXmlStreamWriter xml(&buf);
-    xml.setCodec("utf-8");
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)  // QXmlStreamWriter always encodes XML in UTF-8.
+    xml.setCodec("utf-8");                  // set the encoding before writeStartDocument
+#endif
     xml.writeStartDocument();
     if (!sa_customize_datas_to_xml(&xml, cds)) {
         return QByteArray();
