@@ -9720,13 +9720,19 @@ int SARibbonToolButton::PrivateData::estimateLargeButtonTextWidth(int buttonHeig
 		int maxWidth  = textSize.width();      // 最大宽度（原始宽度）
 		int bestWidth = maxWidth;              // 最佳宽度
 
+		// 两行判定基准用单行实测高度而非 lineSpacing：部分字体（如 Microsoft YaHei UI）的
+		// boundingRect 多行高度按单行高度累计（2 行 = 2×单行高），大于 2×lineSpacing，
+		// 用 lineSpacing*2 判定会使二分查找永远判为"超过两行"、宽度退化为单行全宽，
+		// buttonMaximumAspectRatio 宽度上限对这些字体静默失效
+		const int twoLineHeightBudget = 2 * textSize.height() + 2;
+
 		// 二分查找，最多10次迭代
 		for (int i = 0; i < 10; ++i) {
 			int midWidth = (minWidth + maxWidth) / 2;
 			QRect textRect(0, 0, midWidth, textDrawRectHeight);
 			textRect = fm.boundingRect(textRect, alignment, text);
 
-			if (textRect.height() <= fm.lineSpacing() * 2) {
+			if (textRect.height() <= twoLineHeightBudget) {
 				// 可以在两行内显示，尝试更小的宽度
 				bestWidth = midWidth;
 				maxWidth  = midWidth - 1;
