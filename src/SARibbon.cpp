@@ -34578,7 +34578,9 @@ void SARibbonMainWindow::paintEvent(QPaintEvent* e)
  *          (system buttons, quick access bar, right button group, application button, tab bar,
  *          title icon) are excluded so they keep receiving mouse events. Measured on Qt 5.15:
  *          QWidget::nativeEvent() receives WM_NCHITTEST (unlike the global native event filter,
- *          which only sees non-input messages).
+ *          which only sees non-input messages). The result pointer type is long on Qt5 and
+ *          qintptr on Qt6 (different types on MSVC x64), so the definition below switches
+ *          its signature with QT_VERSION.
  * \endif
  *
  * \if CHINESE
@@ -34591,10 +34593,16 @@ void SARibbonMainWindow::paintEvent(QPaintEvent* e)
  *          （拖到屏幕左/右边缘出半屏预览、拖到顶部出最大化预览）。可交互子控件
  *          （系统按钮、快速访问栏、右侧按钮组、应用按钮、tab 栏、标题图标）被排除，
  *          保持正常接收鼠标事件。Qt 5.15 实测：QWidget::nativeEvent() 能收到
- *          WM_NCHITTEST（全局原生事件过滤器只看得到非输入消息，local filter 无此限制）
+ *          WM_NCHITTEST（全局原生事件过滤器只看得到非输入消息，local filter 无此限制）。
+ *          result 指针类型 Qt5 为 long、Qt6 为 qintptr（MSVC x64 上为不同类型），
+ *          下方实现按 QT_VERSION 区分签名
  * \endif
  */
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool SARibbonMainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr* result)
+#else
 bool SARibbonMainWindow::nativeEvent(const QByteArray& eventType, void* message, long* result)
+#endif
 {
 	if (eventType == "windows_generic_MSG" && message) {
 		MSG* msg = static_cast< MSG* >(message);

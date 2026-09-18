@@ -174,7 +174,12 @@ protected:
 #if defined(Q_OS_WIN) && !SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
     // Windows non-QWK path: return HTCAPTION for the title bar draggable area so that the
     // system takes over title bar dragging and provides Aero Snap (half-screen/maximize)
+    // Qt6 changed the result pointer type from long* to qintptr* (different types on MSVC x64)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    virtual bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) Q_DECL_OVERRIDE;
+#else
     virtual bool nativeEvent(const QByteArray& eventType, void* message, long* result) Q_DECL_OVERRIDE;
+#endif
     // Apply the pending DWM shadow state after the native window is created
     virtual void showEvent(QShowEvent* e) Q_DECL_OVERRIDE;
 #endif
