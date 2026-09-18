@@ -4,10 +4,13 @@
 #include "SARibbonElementManager.h"
 #include "SARibbonTabBar.h"
 #include "SARibbonThemeManager.h"
+#include "SARibbonThemePalette.h"
 #include <QApplication>
 #include <QDebug>
 #include <QFile>
 #include <QHash>
+#include <QPainter>
+#include <QPen>
 #include <QWindowStateChangeEvent>
 #include <QScreen>
 #include <QTimer>
@@ -22,11 +25,88 @@
 #include "SARibbonStackedWidget.h"
 #else
 #include "SAFramelessHelper.h"
+#include "SARibbonButtonGroupWidget.h"
+#include "SARibbonQuickAccessBar.h"
+#include "SARibbonTabBar.h"
+#endif
+#if defined(Q_OS_WIN) && !SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
+#include <windows.h>
+#include <windowsx.h>
+#include <dwmapi.h>
 #endif
 
 /**
  * @brief The SARibbonMainWindowPrivate class
  */
+namespace {
+// 主题对应的内置调色板路径（与 SARibbonThemeManager.cpp / SARibbonUtil.cpp 的同名映射一致），
+// 用于边框色跟随主题时解析 border-color token
+QString mainWindowThemePalettePath(SARibbonTheme theme)
+{
+    switch (theme) {
+    case SARibbonTheme::RibbonThemeOffice2016Blue:
+        return ":/SARibbonTheme/resource/palettes/office2016-blue.json";
+    case SARibbonTheme::RibbonThemeOffice2016Green:
+        return ":/SARibbonTheme/resource/palettes/office2016-green.json";
+    case SARibbonTheme::RibbonThemeOffice2016Dark:
+        return ":/SARibbonTheme/resource/palettes/office2016-dark.json";
+    case SARibbonTheme::RibbonThemeOffice2021Blue:
+        return ":/SARibbonTheme/resource/palettes/office2021-blue.json";
+    case SARibbonTheme::RibbonThemeOffice2021Green:
+        return ":/SARibbonTheme/resource/palettes/office2021-green.json";
+    case SARibbonTheme::RibbonThemeOffice2021Dark:
+        return ":/SARibbonTheme/resource/palettes/office2021-dark.json";
+    case SARibbonTheme::RibbonThemeDark:
+        return ":/SARibbonTheme/resource/palettes/dark-default.json";
+    case SARibbonTheme::RibbonThemeDark2:
+        return ":/SARibbonTheme/resource/palettes/dark2-default.json";
+    case SARibbonTheme::RibbonThemeWindows7:
+        return ":/SARibbonTheme/resource/palettes/win7-default.json";
+    case SARibbonTheme::RibbonThemeOffice2013:
+        return ":/SARibbonTheme/resource/palettes/office2013-default.json";
+    default:
+        return QString();
+    }
+}
+}  // namespace
+
+namespace SA {
+/**
+ * \if ENGLISH
+ * @brief Title-bar draggable area hit test for the Windows non-QWK frameless path
+ * \endif
+ *
+ * \if CHINESE
+ * @brief Windows 非 QWK 无边框路径的标题栏可拖拽区命中测试
+ * \endif
+ */
+bool isTitleBarDragArea(const QPoint& localPos,
+                        const QRect& windowRect,
+                        int titleHeight,
+                        const QList< QRect >& excludedRects,
+                        bool maximizedOrFullscreen)
+{
+    if (maximizedOrFullscreen) {
+        // 最大化/全屏时不返回 HTCAPTION，避免"最大化状态下拖动窗口"的怪异行为
+        return false;
+    }
+    if (titleHeight <= 0 || !windowRect.contains(localPos)) {
+        return false;
+    }
+    const QRect titleBarRect(windowRect.left(), windowRect.top(), windowRect.width(), titleHeight);
+    if (!titleBarRect.contains(localPos)) {
+        return false;
+    }
+    // 排除可点击控件区域（系统按钮、快速访问栏、tab 栏、应用按钮等）
+    for (const QRect& r : excludedRects) {
+        if (r.isValid() && r.contains(localPos)) {
+            return false;
+        }
+    }
+    return true;
+}
+}  // namespace SA
+
 class SARibbonMainWindow::PrivateData
 {
     SA_RIBBON_DECLARE_PUBLIC(SARibbonMainWindow)
@@ -42,6 +122,9 @@ public:
     SARibbonMainWindowStyles mRibbonMainWindowStyle;
     SARibbonTheme mCurrentRibbonTheme { SARibbonTheme::RibbonThemeOffice2021Blue };
     SARibbonSystemButtonBar* mWindowButtonGroup { nullptr };
+    bool mFrameBorderEnabled { false };  ///< 是否绘制 1px 窗口边框（默认关闭保持现行为）
+    QColor mFrameBorderColor;            ///< 自定义边框颜色，无效色表示跟随主题
+    bool mFrameShadowEnabled { false };  ///< 是否启用 DWM 系统阴影（仅 Windows 非 QWK 路径）
 #if SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
     QWK::WidgetWindowAgent* mFramelessHelper { nullptr };
 #else
@@ -536,8 +619,370 @@ void SARibbonMainWindow::setRibbonTheme(SARibbonTheme theme)
         d_ptr->mCurrentRibbonTheme = theme;
         SA::applyRibbonTheme(this, ribbonBar(), theme);
         Q_EMIT ribbonThemeChanged(theme);
+        // 主题切换会重设样式表；边框色跟随主题时需重绘
+        if (d_ptr->mFrameBorderEnabled && !d_ptr->mFrameBorderColor.isValid()) {
+            update();
+        }
     }
 }
+
+/**
+ * \if ENGLISH
+ * @brief Checks whether the 1px window frame border is drawn
+ * @return true if the frame border is drawn
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 查询是否绘制 1px 窗口边框
+ * @return 绘制边框时返回 true
+ * \endif
+ */
+bool SARibbonMainWindow::isFrameBorderEnabled() const
+{
+    return d_ptr->mFrameBorderEnabled;
+}
+
+/**
+ * \if ENGLISH
+ * @brief Enables/disables drawing of the 1px window frame border
+ * @param on true to draw the border, false to keep the default appearance
+ * @details Useful for frameless windows placed over same-colored backgrounds where the
+ *          window boundary is otherwise invisible. Default is off.
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 开启/关闭 1px 窗口边框的绘制
+ * @param on true 绘制边框，false 保持默认外观
+ * @details 适用于无边框窗口落在同色背景（如同为白色的文档区或桌面）上边界不可辨的场景。默认关闭
+ * \endif
+ */
+void SARibbonMainWindow::setFrameBorderEnabled(bool on)
+{
+    if (d_ptr->mFrameBorderEnabled == on) {
+        return;
+    }
+    d_ptr->mFrameBorderEnabled = on;
+    Q_EMIT frameBorderEnabledChanged(on);
+    update();
+}
+
+/**
+ * \if ENGLISH
+ * @brief Gets the custom frame border color
+ * @return The custom color; an invalid QColor means "follow current theme"
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 获取自定义边框颜色
+ * @return 自定义颜色；无效的 QColor 表示"跟随当前主题"
+ * \endif
+ */
+QColor SARibbonMainWindow::frameBorderColor() const
+{
+    return d_ptr->mFrameBorderColor;
+}
+
+/**
+ * \if ENGLISH
+ * @brief Sets a custom frame border color
+ * @param color The color to use; pass an invalid QColor to follow the theme's border-color token
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 设置自定义边框颜色
+ * @param color 使用的颜色；传入无效 QColor 表示跟随主题的 border-color 色板
+ * \endif
+ */
+void SARibbonMainWindow::setFrameBorderColor(const QColor& color)
+{
+    if (d_ptr->mFrameBorderColor == color) {
+        return;
+    }
+    d_ptr->mFrameBorderColor = color;
+    Q_EMIT frameBorderColorChanged(color);
+    if (d_ptr->mFrameBorderEnabled) {
+        update();
+    }
+}
+
+#if defined(Q_OS_WIN) && !SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
+namespace {
+// dwmapi 动态解析（照抄 QWK qwkwindowsextra_p.h 的做法，不引入链接期依赖）
+typedef HRESULT(WINAPI* DwmExtendFrameIntoClientAreaPtr)(HWND, const MARGINS*);
+typedef HRESULT(WINAPI* DwmIsCompositionEnabledPtr)(BOOL*);
+
+DwmExtendFrameIntoClientAreaPtr dwmExtendFrameIntoClientArea()
+{
+    static DwmExtendFrameIntoClientAreaPtr fn = nullptr;
+    static bool resolved = false;
+    if (!resolved) {
+        resolved = true;
+        HMODULE dwm = ::LoadLibraryW(L"dwmapi.dll");
+        if (dwm) {
+            fn = reinterpret_cast< DwmExtendFrameIntoClientAreaPtr >(
+                ::GetProcAddress(dwm, "DwmExtendFrameIntoClientArea"));
+        }
+    }
+    return fn;
+}
+
+bool isDwmCompositionEnabled()
+{
+    DwmIsCompositionEnabledPtr fn = nullptr;
+    HMODULE dwm                   = ::LoadLibraryW(L"dwmapi.dll");
+    if (dwm) {
+        fn = reinterpret_cast< DwmIsCompositionEnabledPtr >(::GetProcAddress(dwm, "DwmIsCompositionEnabled"));
+    }
+    if (!fn) {
+        return false;
+    }
+    BOOL enabled = FALSE;
+    return SUCCEEDED(fn(&enabled)) && enabled;
+}
+
+// 给无边框窗口补 WS_THICKFRAME（可调整尺寸边框），DWM 阴影与系统 resize 光标依赖它；
+// 不加 WS_CAPTION，避免系统标题栏回来
+void applyShadowStyle(HWND hwnd, bool on)
+{
+    const LONG_PTR style = ::GetWindowLongPtrW(hwnd, GWL_STYLE);
+    const LONG_PTR wanted = on ? (style | WS_THICKFRAME) : (style & ~WS_THICKFRAME);
+    if (wanted != style) {
+        ::SetWindowLongPtrW(hwnd, GWL_STYLE, wanted);
+        // 触发非客户区重算
+        ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                       SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+// 应用 DWM 阴影：DwmExtendFrameIntoClientArea 负责把 frame 扩入客户区（阴影随之出现）
+void applyDwmShadow(HWND hwnd, bool on)
+{
+    auto fn = dwmExtendFrameIntoClientArea();
+    if (!fn || !isDwmCompositionEnabled()) {
+        return;
+    }
+    MARGINS margins = on ? MARGINS { 0, 0, 0, 1 }  // 底部 1px：保留阴影所需的 frame 痕迹
+                         : MARGINS { 0, 0, 0, 0 };
+    fn(hwnd, &margins);
+}
+}  // namespace
+#endif
+
+/**
+ * \if ENGLISH
+ * @brief Checks whether the DWM system shadow is enabled for the frameless window
+ * @return true if enabled
+ * @note Windows only (non-QWK path); always false on other platforms and on the QWK path
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 查询无边框窗口是否启用了 DWM 系统阴影
+ * @return 启用时返回 true
+ * @note 仅 Windows（非 QWK 路径）有效；其他平台与 QWK 路径恒为 false
+ * \endif
+ */
+bool SARibbonMainWindow::isFrameShadowEnabled() const
+{
+    return d_ptr->mFrameShadowEnabled;
+}
+
+/**
+ * \if ENGLISH
+ * @brief Enables the DWM system shadow for the frameless window
+ * @param on true to enable the shadow
+ * @details Windows non-QWK path: adds WS_THICKFRAME and extends the DWM frame into the client
+ *          area, so the window gets the standard system shadow. WM_NCCALCSIZE/WM_NCACTIVATE are
+ *          handled in nativeEvent() to keep the client area covering the whole window (no system
+ *          title bar/border appears). No-op on non-Windows platforms and the QWK path (QWK has
+ *          its own shadow handling). Note: the system shadow is not drawn when the window is
+ *          maximized — that is a Windows behavior, not a bug.
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 为无边框窗口启用 DWM 系统阴影
+ * @param on true 启用阴影
+ * @details Windows 非 QWK 路径：加 WS_THICKFRAME 并把 DWM frame 扩入客户区，窗口获得标准
+ *          系统阴影。WM_NCCALCSIZE/WM_NCACTIVATE 在 nativeEvent() 中配套处理，客户区仍然
+ *          铺满整个窗口（不会出现系统标题栏/边框）。非 Windows 平台与 QWK 路径为空操作
+ *          （QWK 有自己的阴影处理）。注意：窗口最大化时系统不绘制阴影——这是 Windows 的
+ *          行为，不是 bug。
+ * \endif
+ */
+void SARibbonMainWindow::setFrameShadowEnabled(bool on)
+{
+    if (d_ptr->mFrameShadowEnabled == on) {
+        return;
+    }
+    d_ptr->mFrameShadowEnabled = on;
+    Q_EMIT frameShadowEnabledChanged(on);
+#if defined(Q_OS_WIN) && !SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
+    if (!testAttribute(Qt::WA_WState_Created) || !testAttribute(Qt::WA_WState_Visible)) {
+        return;  // 窗口未创建/未显示，nativeEvent 会在显示后按状态应用
+    }
+    if (WId hwnd = winId()) {
+        applyShadowStyle(reinterpret_cast< HWND >(hwnd), on);
+        applyDwmShadow(reinterpret_cast< HWND >(hwnd), on);
+    }
+#endif
+}
+
+/**
+ * \if ENGLISH
+ * @brief Draws the optional 1px frame border and then the default window content
+ * @param e Paint event
+ * @details The border is only drawn when isFrameBorderEnabled() is true. Color resolution order:
+ *          custom frameBorderColor() if valid, then the theme palette's "border-color" token,
+ *          finally a fallback of palette window color darkened.
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 绘制可选的 1px 边框，随后执行默认的窗口内容绘制
+ * @param e 绘制事件
+ * @details 仅当 isFrameBorderEnabled() 为真时绘制。取色顺序：自定义 frameBorderColor() 有效优先，
+ *          其次主题调色板的 border-color 色板，最后退回 palette 窗口色加深
+ * \endif
+ */
+void SARibbonMainWindow::paintEvent(QPaintEvent* e)
+{
+    if (d_ptr->mFrameBorderEnabled) {
+        QPainter painter(this);
+        QColor border = d_ptr->mFrameBorderColor;
+        if (!border.isValid()) {
+            // 跟随主题：从当前主题的调色板取 border-color token
+            SA::SARibbonThemePalette themePalette;
+            const QString palettePath = mainWindowThemePalettePath(d_ptr->mCurrentRibbonTheme);
+            if (!palettePath.isEmpty() && themePalette.loadFromFile(palettePath)) {
+                border = themePalette.color("border-color");
+            }
+        }
+        if (!border.isValid()) {
+            border = palette().color(QPalette::Window).darker(120);
+        }
+        QPen pen(border, 1);
+        painter.setPen(pen);
+        // rect().adjusted(0,0,-1,-1)：画在客户区内缘，画在 rect() 外侧会被裁掉
+        painter.drawRect(rect().adjusted(0, 0, -1, -1));
+    }
+    QMainWindow::paintEvent(e);
+}
+
+#if defined(Q_OS_WIN) && !SARIBBON_USE_3RDPARTY_FRAMELESSHELPER
+/**
+ * \if ENGLISH
+ * @brief Windows non-QWK path: returns HTCAPTION for the title bar draggable area
+ * @param eventType Native event type name
+ * @param message Native message (MSG on Windows)
+ * @param result Output: the native hit test result to return
+ * @return true if the message is consumed
+ * @details Returning HTCAPTION lets Windows take over the title bar drag loop, which provides
+ *          the system Aero Snap behavior (drag to left/right screen edge shows the half-screen
+ *          preview, drag to the top shows the maximize preview). Interactive child widgets
+ *          (system buttons, quick access bar, right button group, application button, tab bar,
+ *          title icon) are excluded so they keep receiving mouse events. Measured on Qt 5.15:
+ *          QWidget::nativeEvent() receives WM_NCHITTEST (unlike the global native event filter,
+ *          which only sees non-input messages).
+ * \endif
+ *
+ * \if CHINESE
+ * @brief Windows 非 QWK 路径：标题栏可拖拽区返回 HTCAPTION
+ * @param eventType 原生事件类型名
+ * @param message 原生消息（Windows 上为 MSG）
+ * @param result 输出：返回给系统的命中测试结果
+ * @return true 表示消息已消费
+ * @details 返回 HTCAPTION 后 Windows 接管标题栏拖拽循环，系统免费提供 Aero Snap
+ *          （拖到屏幕左/右边缘出半屏预览、拖到顶部出最大化预览）。可交互子控件
+ *          （系统按钮、快速访问栏、右侧按钮组、应用按钮、tab 栏、标题图标）被排除，
+ *          保持正常接收鼠标事件。Qt 5.15 实测：QWidget::nativeEvent() 能收到
+ *          WM_NCHITTEST（全局原生事件过滤器只看得到非输入消息，local filter 无此限制）
+ * \endif
+ */
+bool SARibbonMainWindow::nativeEvent(const QByteArray& eventType, void* message, long* result)
+{
+    if (eventType == "windows_generic_MSG" && message) {
+        MSG* msg = static_cast< MSG* >(message);
+        if (d_ptr->mFrameShadowEnabled) {
+            // ---- DWM 阴影配套处理（issue #129）----
+            if (msg->message == WM_NCCALCSIZE && msg->wParam) {
+                // 加了 WS_THICKFRAME 后系统会预留边框区，这里把客户区还原为铺满整个窗口：
+                // 先记下 top，跑 DefWindowProc（应用默认 frame，保住左/右/下边框与阴影），
+                // 再恢复 top（去掉系统标题栏）——做法与 QWK nonClientCalcSizeHandler 一致
+                auto* params = reinterpret_cast< LPNCCALCSIZE_PARAMS >(msg->lParam);
+                const LONG originalTop = params->rgrc[ 0 ].top;
+                const LRESULT defResult = ::DefWindowProcW(msg->hwnd, WM_NCCALCSIZE, msg->wParam, msg->lParam);
+                params->rgrc[ 0 ].top  = originalTop;
+                // 最大化时窗口实际尺寸比屏幕大一圈（resize 手柄在屏外），需裁剪，
+                // 否则内容超出屏幕边界显示不全
+                if (isMaximized() && !isFullScreen()) {
+                    const UINT dpi = ::GetDpiForWindow(msg->hwnd);
+                    const int frameSize = ::GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi)
+                                        + ::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+                    params->rgrc[ 0 ].top += frameSize;
+                }
+                *result = 0;
+                return true;
+            } else if (msg->message == WM_NCACTIVATE) {
+                // 防失活白边：lParam 设 -1 让系统不重绘 frame（经典 frameless 做法）
+                *result = ::DefWindowProcW(msg->hwnd, WM_NCACTIVATE, msg->wParam, -1);
+                return true;
+            }
+        }
+        if (msg->message == WM_NCHITTEST) {
+            // lParam 是屏幕物理坐标：ScreenToClient 转为窗口本地物理坐标，
+            // 再除以 devicePixelRatioF 得到本地逻辑坐标（Qt 的逻辑↔物理映射关系）
+            POINT pt = { GET_X_LPARAM(msg->lParam), GET_Y_LPARAM(msg->lParam) };
+            ::ScreenToClient(msg->hwnd, &pt);
+            const qreal dpr = devicePixelRatioF();
+            const QPoint localLogical(qRound(pt.x / dpr), qRound(pt.y / dpr));
+            // 收集需要保持可点击的控件区域（语义同 QWK 路径的 setHitTestVisible 清单）
+            QList< QRect > excluded;
+            SARibbonBar* rb = ribbonBar();
+            const QWidget* candidates[] = {
+                qobject_cast< QWidget* >(d_ptr->mWindowButtonGroup),
+                rb ? qobject_cast< QWidget* >(rb->quickAccessBar()) : nullptr,
+                rb ? qobject_cast< QWidget* >(rb->rightButtonGroup()) : nullptr,
+                rb ? qobject_cast< QWidget* >(rb->applicationButton()) : nullptr,
+                rb ? qobject_cast< QWidget* >(rb->titleIconWidget()) : nullptr,
+                rb ? qobject_cast< QWidget* >(rb->ribbonTabBar()) : nullptr
+            };
+            for (const QWidget* w : candidates) {
+                if (w && w->isVisible()) {
+                    excluded.append(QRect(mapFromGlobal(w->mapToGlobal(QPoint(0, 0))),
+                                          w->rect().size()));
+                }
+            }
+            const int titleHeight = ribbonBar() ? ribbonBar()->titleBarHeight() : 0;
+            if (SA::isTitleBarDragArea(localLogical, rect(), titleHeight, excluded,
+                                       isMaximized() || isFullScreen())) {
+                *result = HTCAPTION;
+                return true;
+            }
+        }
+    }
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+
+/**
+ * \if ENGLISH
+ * @brief Applies the pending DWM shadow state once the native window exists
+ * @param e Show event
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 原生窗口创建后应用待生效的 DWM 阴影状态
+ * @param e 显示事件
+ * \endif
+ */
+void SARibbonMainWindow::showEvent(QShowEvent* e)
+{
+    QMainWindow::showEvent(e);
+    if (d_ptr->mFrameShadowEnabled) {
+        if (WId hwnd = winId()) {
+            applyShadowStyle(reinterpret_cast< HWND >(hwnd), true);
+            applyDwmShadow(reinterpret_cast< HWND >(hwnd), true);
+        }
+    }
+}
+#endif
 
 /**
  * \if ENGLISH
@@ -611,6 +1056,14 @@ void SARibbonMainWindow::onPrimaryScreenChanged(QScreen* screen)
         qDebug() << "Primary Screen Changed";
         bar->updateRibbonGeometry();
     }
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    // 主屏切换可能伴随 DPI 变化，窗口尺寸不变时系统按钮栏不会收到 resize 事件，
+    // 主动发送屏幕变化事件触发其重算几何（issue #118）
+    if (d_ptr->mWindowButtonGroup) {
+        QEvent ev(QEvent::ScreenChangeInternal);
+        QCoreApplication::sendEvent(this, &ev);
+    }
+#endif
 }
 
 //----------------------------------------------------

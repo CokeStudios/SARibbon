@@ -27,6 +27,7 @@
 #include <QXmlStreamReader>
 #include "SARibbonCustomizeData.h"
 #include "SARibbonBar.h"
+#include "SARibbonQuickAccessBar.h"
 #include <QFile>
 #include <QMessageBox>
 
@@ -170,6 +171,15 @@ int sa_customize_datas_reverse(const QList< SARibbonCustomizeData >& cds, SARibb
         case SARibbonCustomizeData::VisibleCategoryActionType:
             rd = SARibbonCustomizeData::makeVisibleCategoryCustomizeData(d.categoryObjNameValue, d.indexValue != 1);
             break;
+        case SARibbonCustomizeData::AddQuickActionActionType:
+            rd = SARibbonCustomizeData::makeRemoveQuickActionCustomizeData(d.keyValue, mgr);
+            break;
+        case SARibbonCustomizeData::RemoveQuickActionActionType:
+            rd = SARibbonCustomizeData::makeAddQuickActionCustomizeData(d.keyValue, mgr);
+            break;
+        case SARibbonCustomizeData::ChangeQuickActionOrderActionType:
+            rd = SARibbonCustomizeData::makeChangeQuickActionOrderCustomizeData(d.keyValue, mgr, -d.indexValue);
+            break;
         default:
             continue;
         }
@@ -225,6 +235,7 @@ public:
     QHBoxLayout* horizontalLayoutCategorySelect;
     QRadioButton* radioButtonMainCategory;
     QRadioButton* radioButtonAllCategory;
+    QRadioButton* radioButtonQuickAccessBar;
     QButtonGroup* radioButtonGroup;
     QTreeView* treeViewResult;
     QHBoxLayout* horizontalLayoutActionOptBtns;
@@ -327,9 +338,16 @@ public:
 
         horizontalLayoutCategorySelect->addWidget(radioButtonAllCategory);
 
+        radioButtonQuickAccessBar = new QRadioButton(customizeWidget);
+        radioButtonQuickAccessBar->setObjectName(QStringLiteral("radioButtonQuickAccessBar"));
+        radioButtonQuickAccessBar->setChecked(false);
+
+        horizontalLayoutCategorySelect->addWidget(radioButtonQuickAccessBar);
+
         radioButtonGroup = new QButtonGroup(customizeWidget);
         radioButtonGroup->addButton(radioButtonMainCategory);
         radioButtonGroup->addButton(radioButtonAllCategory);
+        radioButtonGroup->addButton(radioButtonQuickAccessBar);
 
         verticalLayoutResult->addLayout(horizontalLayoutCategorySelect);
 
@@ -410,6 +428,7 @@ public:
             QApplication::translate("SARibbonCustomizeWidget", "Customize the Ribbon", Q_NULLPTR));  // cn:自定义功能区
         radioButtonMainCategory->setText(QApplication::translate("SARibbonCustomizeWidget", "Main Category", Q_NULLPTR));  // cn:主选项卡
         radioButtonAllCategory->setText(QApplication::translate("SARibbonCustomizeWidget", "All Category", Q_NULLPTR));  // cn:所有选项卡
+        radioButtonQuickAccessBar->setText(QApplication::translate("SARibbonCustomizeWidget", "Quick Access Bar", Q_NULLPTR));  // cn:快速访问栏
         pushButtonNewCategory->setText(QApplication::translate("SARibbonCustomizeWidget", "New Category", Q_NULLPTR));  // cn:新建选项卡
         pushButtonNewPanel->setText(QApplication::translate("SARibbonCustomizeWidget", "New Group", Q_NULLPTR));  // cn:新建组
         pushButtonRename->setText(QApplication::translate("SARibbonCustomizeWidget", "Rename", Q_NULLPTR));  // cn:重命名
@@ -480,6 +499,35 @@ void SARibbonCustomizeWidget::PrivateData::updateModel()
         return;
     }
     mRibbonModel->clear();
+    if (mShowType == SARibbonCustomizeWidget::ShowQuickAccessBar) {
+        // 快速访问栏视图（issue #67）：以快速访问栏为根（LevelRole=3），其下挂 action 项（LevelRole=4）
+        SARibbonQuickAccessBar* quickBar = mRibbonBar->quickAccessBar();
+        if (nullptr == quickBar) {
+            return;
+        }
+        QStandardItem* root = new QStandardItem(
+            SARibbonCustomizeWidget::tr("Quick Access Bar"));  // cn:快速访问栏
+        root->setData(3, SARibbonCustomizeWidget::LevelRole);
+        root->setData(QVariant::fromValue< qintptr >(qintptr(quickBar)),
+                      SARibbonCustomizeWidget::PointerRole);
+        root->setData(true, SARibbonCustomizeWidget::CanCustomizeRole);  // 根节点允许"添加"落点
+        const QList< QAction* > acts = quickBar->actions();
+        for (QAction* act : acts) {
+            if (act->isSeparator()) {
+                continue;
+            }
+            QStandardItem* ai = new QStandardItem(act->icon(), act->text());
+            if (SARibbonCustomizeData::isCanCustomize(act)) {
+                ai->setData(true, SARibbonCustomizeWidget::CanCustomizeRole);
+            }
+            ai->setData(4, SARibbonCustomizeWidget::LevelRole);
+            ai->setData(QVariant::fromValue< qintptr >(qintptr(act)),
+                        SARibbonCustomizeWidget::PointerRole);
+            root->appendRow(ai);
+        }
+        mRibbonModel->appendRow(root);
+        return;
+    }
     SARibbonBar* ribbonbar               = mRibbonBar;
     QList< SARibbonCategory* > categorys = ribbonbar->categoryPages();
 
@@ -1431,7 +1479,11 @@ void SARibbonCustomizeWidget::onComboBoxActionIndexCurrentIndexChanged(int index
 
 void SARibbonCustomizeWidget::onRadioButtonGroupButtonClicked(QAbstractButton* b)
 {
-    updateModel(b == ui->radioButtonAllCategory ? ShowAllCategory : ShowMainCategory);
+    if (b == ui->radioButtonQuickAccessBar) {
+        updateModel(ShowQuickAccessBar);
+    } else {
+        updateModel(b == ui->radioButtonAllCategory ? ShowAllCategory : ShowMainCategory);
+    }
 }
 
 void SARibbonCustomizeWidget::onPushButtonNewCategoryClicked()
@@ -1551,6 +1603,30 @@ void SARibbonCustomizeWidget::onPushButtonAddClicked()
     }
     int level = itemLevel(item);
 
+    if (3 == level || 4 == level) {
+        // 快速访问栏视图：把选中的 action 加入快速访问栏（issue #67）
+        if (4 == level) {
+            item = item->parent();  // 落点统一到根节点
+        }
+        if (nullptr == item) {
+            return;
+        }
+        QString key = d_ptr->mActionMgr->key(act);
+        if (key.isEmpty()) {
+            return;
+        }
+        SARibbonCustomizeData d = SARibbonCustomizeData::makeAddQuickActionCustomizeData(key, d_ptr->mActionMgr);
+        d_ptr->mCustomizeDatasCache.append(d);
+
+        QStandardItem* actItem = new QStandardItem(act->icon(), act->text());
+        actItem->setData(4, SARibbonCustomizeWidget::LevelRole);
+        actItem->setData(true, SARibbonCustomizeWidget::CanCustomizeRole);
+        actItem->setData(true, SARibbonCustomizeWidget::CustomizeRole);
+        actItem->setData(act->objectName(), SARibbonCustomizeWidget::CustomizeObjNameRole);
+        actItem->setData(qintptr(act), SARibbonCustomizeWidget::PointerRole);
+        item->appendRow(actItem);
+        return;
+    }
     if (0 == level) {
         // 选中category不进行操作
         return;
@@ -1611,6 +1687,18 @@ void SARibbonCustomizeWidget::onPushButtonDeleteClicked()
 
         SARibbonCustomizeData d =
             SARibbonCustomizeData::makeRemoveActionCustomizeData(catObjName, panelObjName, key, d_ptr->mActionMgr);
+        d_ptr->mCustomizeDatasCache.append(d);
+    } else if (4 == level) {
+        // 从快速访问栏移除action（issue #67）
+        QAction* act = itemToAction(item);
+        if (nullptr == act) {
+            return;
+        }
+        QString key = d_ptr->mActionMgr->key(act);
+        if (key.isEmpty()) {
+            return;
+        }
+        SARibbonCustomizeData d = SARibbonCustomizeData::makeRemoveQuickActionCustomizeData(key, d_ptr->mActionMgr);
         d_ptr->mCustomizeDatasCache.append(d);
     }
     // 执行删除操作
@@ -1688,6 +1776,21 @@ void SARibbonCustomizeWidget::onToolButtonUpClicked()
         item  = panelItem->takeChild(r);
         panelItem->removeRow(r);
         panelItem->insertRow(r - 1, item);
+    } else if (4 == level) {
+        // 快速访问栏内上移（issue #67）
+        QAction* act = itemToAction(item);
+        if (!act) {
+            return;
+        }
+        QString key             = d_ptr->mActionMgr->key(act);
+        SARibbonCustomizeData d = SARibbonCustomizeData::makeChangeQuickActionOrderCustomizeData(
+            key, d_ptr->mActionMgr, -1);
+        d_ptr->mCustomizeDatasCache.append(d);
+        QStandardItem* rootItem = item->parent();
+        int r                   = item->row();
+        item                    = rootItem->takeChild(r);
+        rootItem->removeRow(r);
+        rootItem->insertRow(r - 1, item);
     }
 
     // 保持焦点，方便连续操作
@@ -1747,6 +1850,21 @@ void SARibbonCustomizeWidget::onToolButtonDownClicked()
         item  = panelItem->takeChild(r);
         panelItem->removeRow(r);
         panelItem->insertRow(r + 1, item);
+    } else if (4 == level) {
+        // 快速访问栏内下移（issue #67）
+        QAction* act = itemToAction(item);
+        if (!act) {
+            return;
+        }
+        QString key             = d_ptr->mActionMgr->key(act);
+        SARibbonCustomizeData d = SARibbonCustomizeData::makeChangeQuickActionOrderCustomizeData(
+            key, d_ptr->mActionMgr, 1);
+        d_ptr->mCustomizeDatasCache.append(d);
+        QStandardItem* rootItem = item->parent();
+        int r                   = item->row();
+        item                    = rootItem->takeChild(r);
+        rootItem->removeRow(r);
+        rootItem->insertRow(r + 1, item);
     }
 
     // 保持焦点，方便连续操作

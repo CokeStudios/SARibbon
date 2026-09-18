@@ -59,8 +59,9 @@ public:
      */
     enum RibbonTreeShowType
     {
-        ShowAllCategory,  ///< Show all categories including context categories
-        ShowMainCategory  ///< Show main categories only, excluding context categories
+        ShowAllCategory,     ///< Show all categories including context categories
+        ShowMainCategory,    ///< Show main categories only, excluding context categories
+        ShowQuickAccessBar   ///< Show the quick access bar as the tree root (issue #67)
     };
 
     /**
@@ -74,7 +75,7 @@ public:
      */
     enum ItemRole
     {
-        LevelRole        = Qt::UserRole + 1,  ///< Level: 0=category, 1=panel, 2=item
+        LevelRole        = Qt::UserRole + 1,  ///< Level: 0=category, 1=panel, 2=item, 3=quick access bar root, 4=quick access bar action
         PointerRole      = Qt::UserRole + 2,  ///< Pointer storage, cast based on LevelRole
         CanCustomizeRole = Qt::UserRole + 3,  ///< Whether this item can be customized (bool)
         CustomizeRole = Qt::UserRole + 4,  ///< Whether this is a custom item (bool), mainly for self-added tabs and panels

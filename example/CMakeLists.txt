@@ -3,6 +3,8 @@ project(SARibbonExamples LANGUAGES CXX)
 
 add_subdirectory(MainWindowExample)
 add_subdirectory(UseNativeFrameExample)
+add_subdirectory(MultiScreenDpiExample)
+add_subdirectory(Qt3DWindowExample)
 add_subdirectory(WidgetWithRibbon)
 add_subdirectory(NormalMenuBarExample)
 add_subdirectory(MdiAreaWindowExample)

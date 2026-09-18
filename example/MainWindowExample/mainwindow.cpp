@@ -17,6 +17,7 @@
 #include "SARibbonMenu.h"
 #include "SARibbonPanel.h"
 #include "SARibbonQuickAccessBar.h"
+#include "SARibbonCustomizeData.h"
 #include "SARibbonToolButton.h"
 #include "SARibbonCtrlContainer.h"
 #include "colorWidgets/SAColorGridWidget.h"
@@ -2281,6 +2282,49 @@ void MainWindow::createCategoryOther(SARibbonCategory* categoryPage)
         createAction(tr("show very long text in a button,balabalabala etc"), ":/icon/icon/long-text.svg", "long-text");
     panelAppButton->addLargeAction(actionLongText);
 
+    // Gallery/面板中放置自定义控件（issue #78 演示）：
+    // 方式一：SARibbonPanel::addWidget 通过 QWidgetAction 把任意控件加入面板（与 Gallery 同面板展示）
+    SARibbonPanel* panelGalleryWidgets = new SARibbonPanel(tr("gallery widgets"));
+    panelGalleryWidgets->setObjectName("CategoryOther-panelGalleryWidgets");
+    categoryPage->addPanel(panelGalleryWidgets);
+    QCheckBox* galleryCheckBox = new QCheckBox(tr("checkbox in panel"), panelGalleryWidgets);
+    connect(galleryCheckBox, &QCheckBox::toggled, this, [ this ](bool on) {
+        if (this->ui->textBrowser) {
+            this->ui->textBrowser->append(QString("gallery panel checkbox toggled: %1").arg(on));
+        }
+    });
+    panelGalleryWidgets->addSmallWidget(galleryCheckBox);
+    QComboBox* galleryComboBox = new QComboBox(panelGalleryWidgets);
+    galleryComboBox->addItems({ tr("option 1"), tr("option 2"), tr("option 3") });
+    connect(galleryComboBox,
+            QOverload< int >::of(&QComboBox::currentIndexChanged),
+            this,
+            [ this ](int idx) {
+                if (this->ui->textBrowser) {
+                    this->ui->textBrowser->append(QString("gallery panel combobox changed: %1").arg(idx));
+                }
+            });
+    panelGalleryWidgets->addSmallWidget(galleryComboBox);
+    QPushButton* galleryButton = new QPushButton(tr("button in panel"), panelGalleryWidgets);
+    connect(galleryButton, &QPushButton::clicked, this, [ this ]() {
+        if (this->ui->textBrowser) {
+            this->ui->textBrowser->append("gallery panel button clicked");
+        }
+    });
+    panelGalleryWidgets->addSmallWidget(galleryButton);
+    // 方式二：把控件放进 Gallery 的弹出 viewport（点 Gallery 右下角"更多"按钮弹出可见）
+    SARibbonGalleryViewport* galleryViewport = gallery->getPopupViewPort();
+    QWidget* viewportCustomWidget = new QWidget(galleryViewport);
+    QVBoxLayout* viewportLay      = new QVBoxLayout(viewportCustomWidget);
+    viewportLay->setContentsMargins(4, 4, 4, 4);
+    QCheckBox* viewportCheck = new QCheckBox(tr("checkbox in gallery popup"), viewportCustomWidget);
+    viewportLay->addWidget(viewportCheck);
+    QComboBox* viewportCombo = new QComboBox(viewportCustomWidget);
+    viewportCombo->addItems({ tr("popup option A"), tr("popup option B") });
+    viewportLay->addWidget(viewportCombo);
+    viewportLay->addStretch();
+    galleryViewport->addWidget(viewportCustomWidget, tr("custom widgets"));
+
     SARibbonPanel* panelStyle = new SARibbonPanel(tr("style"));
     panelStyle->setObjectName("CategoryOther-panelStyle");
     categoryPage->addPanel(panelStyle);
@@ -2298,6 +2342,35 @@ void MainWindow::createCategoryOther(SARibbonCategory* categoryPage)
     actionWindowFlagNormalButton->setChecked(true);
     panelStyle->addSmallAction(actionWindowFlagNormalButton);
     connect(actionWindowFlagNormalButton, &QAction::triggered, this, &MainWindow::onActionWindowFlagNormalButtonTriggered);
+
+    // 主窗口 1px 边框开关（issue #154 演示）：开启后窗口边缘绘制边框，与同色背景可分辨
+    QAction* actionFrameBorder = createAction(tr("window frame border"), ":/icon/icon/windowsflag-normal.svg");
+    actionFrameBorder->setCheckable(true);
+    actionFrameBorder->setChecked(false);
+    panelStyle->addSmallAction(actionFrameBorder);
+    connect(actionFrameBorder, &QAction::triggered, this, [ this ](bool on) {
+        setFrameBorderEnabled(on);
+        // 演示自定义颜色：跟随主题（无效色）也可用 setFrameBorderColor(QColor()) 切回
+        if (on) {
+            setFrameBorderColor(QColor(0x80, 0x80, 0x80));
+        }
+        if (ui->textBrowser) {
+            ui->textBrowser->append(QString("window frame border %1").arg(on ? "on" : "off"));
+        }
+    });
+
+    // DWM 系统阴影开关（issue #129 演示，仅 Windows 非 QWK 路径生效）：
+    // 开启后无边框窗口获得系统阴影（最大化时系统不绘制阴影属正常行为）
+    QAction* actionFrameShadow = createAction(tr("window frame shadow"), ":/icon/icon/windowsflag-normal.svg");
+    actionFrameShadow->setCheckable(true);
+    actionFrameShadow->setChecked(false);
+    panelStyle->addSmallAction(actionFrameShadow);
+    connect(actionFrameShadow, &QAction::triggered, this, [ this ](bool on) {
+        setFrameShadowEnabled(on);
+        if (ui->textBrowser) {
+            ui->textBrowser->append(QString("window frame shadow %1").arg(on ? "on" : "off"));
+        }
+    });
 
     SARibbonPanel* panelUtf8 = new SARibbonPanel(QStringLiteral(u"中文显示测试"));
     panelUtf8->setObjectName("CategoryOther-panelUtf8");
@@ -2811,7 +2884,8 @@ void MainWindow::createQuickAccessBar()
 {
     SARibbonQuickAccessBar* quickAccessBar = ribbonBar()->quickAccessBar();
 
-    quickAccessBar->addAction(createAction("save", ":/icon/icon/save.svg", "save-quickbar"));
+    QAction* actionSave = createAction("save", ":/icon/icon/save.svg", "save-quickbar");
+    quickAccessBar->addAction(actionSave);
     quickAccessBar->addSeparator();
 
     QAction* actionUndo = createAction("undo", ":/icon/icon/undo.svg");
@@ -2958,6 +3032,19 @@ void MainWindow::createActionsManager()
     mActionsManager->registeAction(mOtherAction5, mTagForActionText);
 
     mActionsManager->registeAction(mOtherActionIcon1, mTagForActionIcon);
+
+    // 快速访问栏的动作允许自定义（issue #67）：注册进动作管理器，
+    // 使自定义对话框的"快速访问栏"视图可检索并增删移这些动作
+    // （createQuickAccessBar 先于本函数执行，此处从快速访问栏遍历注册）
+    if (SARibbonQuickAccessBar* quickAccessBar = ribbonBar()->quickAccessBar()) {
+        const QList< QAction* > quickActions = quickAccessBar->actions();
+        for (QAction* act : quickActions) {
+            if (!act->isSeparator()) {
+                SARibbonCustomizeData::setCanCustomize(act);
+                mActionsManager->registeAction(act, SARibbonActionsManager::CommonlyUsedActionTag);
+            }
+        }
+    }
 
     mActionsManager->setTagName(SARibbonActionsManager::CommonlyUsedActionTag, tr("in common use"));
     mActionsManager->setTagName(mTagForActionText, tr("no icon action"));

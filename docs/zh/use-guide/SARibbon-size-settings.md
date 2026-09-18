@@ -180,3 +180,24 @@ ribbon->setLargeButtonMinimumWidthRatio(0.0);
 !!! example "交互式调试"
     运行 `example/MainWindowExample` 示例的 **Size** 标签页，可动态调整各部件尺寸并实时查看效果。
     ![example-size](../../assets/pic/example-size.png)
+
+## Gallery 拉伸系数
+
+一个面板里放多个 Gallery 时，默认对额外宽度**均分**。如需按权重分配，可对每个 Gallery 设置拉伸系数：
+
+```cpp
+SARibbonGallery* g1 = panel->addGallery();
+SARibbonGallery* g2 = panel->addGallery();
+g1->setStretchFactor(2);  // g1 : g2 的最终宽度比约为 2 : 1
+g2->setStretchFactor(1);
+```
+
+规则：
+
+- 系数默认 `0`，表示沿用既有均分行为——不设置任何系数时布局与旧版本完全一致；
+- 只要有一个 Gallery 设置了大于 0 的系数，就进入加权模式：最终宽度比接近权重比，系数为 `0` 的 Gallery 保持基础宽度不参与增量分配；
+- 加权结果受列最大宽度（`QWidget::setMaximumWidth`）与最小宽度约束，实际比例会有少量偏差；
+- 系数变化会自动触发所在面板重新布局，无需手动调用。
+
+!!! note
+    运行 `example/MainWindowExample` 的 **Size** 标签页可配合验证。

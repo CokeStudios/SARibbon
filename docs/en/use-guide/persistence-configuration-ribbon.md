@@ -151,3 +151,15 @@ void MainWindow::onActionCustomizeTriggered()
 
 !!! tip "Tip"
     If you want to embed the customization dialog into your own settings page, you can use `SARibbonCustomizeWidget` instead of `SARibbonCustomizeDialog`. The APIs are essentially the same.
+## Customizing the Quick Access Bar
+
+In the customization dialog there are three radio buttons above the result tree: **Main Category**, **All Category**, and **Quick Access Bar**. Selecting "Quick Access Bar" shows the quick access bar as the tree root with its actions, operated exactly like the Ribbon customization:
+
+- **Add**: select an action in the left action list, select the quick access bar (or one of its actions) in the result tree, then click "Add >>";
+- **Remove**: select an action in the quick access bar and click "<< Remove";
+- **Reorder**: use the "move up / move down" buttons with an action selected.
+
+Quick access bar customization data shares the **same save/load entry points** as the Ribbon customization (`toXml`/`fromXml`), with no extra configuration; XML files saved by older versions simply contain no quick access data and load unaffected.
+
+!!! note "Prerequisite"
+    Actions to be added to the quick access bar must first be registered with `SARibbonActionsManager` (via `autoRegisteActions` or manual `registeAction`), and marked customizable with `SARibbonCustomizeData::setCanCustomize(action)` before they appear in the operable list. Run the customization dialog of `example/MainWindowExample` to try the full flow.

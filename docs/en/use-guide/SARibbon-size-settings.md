@@ -157,3 +157,23 @@ ribbon->setLargeButtonMinimumWidthRatio(0.0);
 !!! example "Interactive Debugging"
     Run the **Size** tab in the `example/MainWindowExample` example to dynamically adjust component sizes and see the effects in real time.
     ![example-size](../../assets/pic/example-size.png)
+## Gallery Stretch Factor
+
+When a panel contains multiple Galleries, the extra width is **shared equally** by default. To distribute it by weight, set a stretch factor on each Gallery:
+
+```cpp
+SARibbonGallery* g1 = panel->addGallery();
+SARibbonGallery* g2 = panel->addGallery();
+g1->setStretchFactor(2);  // final width ratio of g1 : g2 is approximately 2 : 1
+g2->setStretchFactor(1);
+```
+
+Rules:
+
+- The factor defaults to `0`, which keeps the legacy equal-share behavior — if no factor is ever set, the layout is identical to previous versions;
+- As soon as one Gallery has a factor greater than 0, weighted mode kicks in: the final width ratio approximates the weight ratio, and Galleries with a factor of `0` keep their base width and opt out of the extra distribution;
+- The weighted result is constrained by the column maximum width (`QWidget::setMaximumWidth`) and minimum widths, so the actual ratio deviates slightly;
+- Changing the factor automatically re-lays out the containing panel; no manual call is needed.
+
+!!! note
+    Run the **Size** tab in `example/MainWindowExample` to verify interactively.

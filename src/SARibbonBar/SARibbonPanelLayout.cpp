@@ -4,13 +4,22 @@
 #include "SARibbonElementManager.h"
 #include <QWidgetAction>
 #include <QQueue>
+#include <algorithm>
 #include "SARibbonPanel.h"
 #include "SARibbonPanelItem.h"
+#include "SARibbonGallery.h"
 #include "SARibbonQt5Compat.hpp"
 #include "SARibbonUtil.h"
 
 #ifndef SARibbonPanelLayout_DEBUG_PRINT
 #define SARibbonPanelLayout_DEBUG_PRINT 0
+#endif
+
+#if SARibbonPanelLayout_DEBUG_PRINT
+#include <QDebug>
+// 调试插桩：日志序号 + doLayout嵌套深度，用于观察布局循环
+static int s_p_debug_seq                  = 0;
+static thread_local int s_p_doLayoutDepth = 0;
 #endif
 
 #if SARibbonPanelLayout_DEBUG_PRINT
@@ -346,8 +355,17 @@ bool SARibbonPanelLayout::isEmpty() const
  */
 void SARibbonPanelLayout::invalidate()
 {
+#if SARibbonPanelLayout_DEBUG_PRINT
+    // 注意：布局构造/析构早期也会触发invalidate，此时面板可能处于半构造状态，
+    // 严禁访问面板成员函数（如panelName()会解引用尚未初始化的d_ptr），只取objectName()
+    QWidget* pw = parentWidget();
+    qDebug() << "[seq" << ++s_p_debug_seq << "] SARibbonPanelLayout::invalidate() [" << this << "] panel=" << pw
+             << " obj=\"" << (pw ? pw->objectName() : QString()) << "\", inDoLayout=" << mInDoLayout
+             << (mInDoLayout ? "  <== invalidate DURING doLayout (loop fuel!)" : "");
+#endif
     mDirty = true;
     mButtonSizeHintCache.clear();
+    mButtonSizeHintCacheLargeHeight = -1;
     QLayout::invalidate();
 }
 
@@ -575,10 +593,31 @@ void SARibbonPanelLayout::invalidateButtonSizeHintCache(QWidget* w)
 void SARibbonPanelLayout::doLayout()
 {
 #if SARibbonPanelLayout_DEBUG_PRINT
-    if (SARibbonPanel* panel = ribbonPanel()) {
-        qDebug() << "| |-SARibbonPanelLayout layoutActions,panel name = " << panel->panelName();
-    }
+    ++s_p_doLayoutDepth;
+    struct DebugDoLayoutGuard
+    {
+        ~DebugDoLayoutGuard()
+        {
+            --s_p_doLayoutDepth;
+        }
+    } debugGuard;
+    // doLayout执行时面板必然已构造完成，但统一使用objectName避免任何半构造访问风险
+    QWidget* debugPanel = parentWidget();
+    qDebug() << "[seq" << ++s_p_debug_seq << "] --> SARibbonPanelLayout::doLayout() [" << this << "] panel=" << debugPanel
+             << " obj=\"" << (debugPanel ? debugPanel->objectName() : QString()) << "\", dirty=" << mDirty
+             << ", doLayoutDepth=" << s_p_doLayoutDepth;
 #endif
+    // 重入守卫标志：本函数内对子控件执行show()/hide()时，Qt会同步向上activate本布局，
+    // setGeometry()检测到此标志后会跳过该同步重入（几何已是目标值，Qt随后会投递LayoutRequest）
+    struct InDoLayoutGuard
+    {
+        SARibbonPanelLayout* self;
+        ~InDoLayoutGuard()
+        {
+            self->mInDoLayout = false;
+        }
+    } inDoLayoutGuard { this };
+    mInDoLayout = true;
     if (isDirty()) {
         updateGeomArray();
     }
@@ -605,12 +644,24 @@ void SARibbonPanelLayout::doLayout()
     // 当布局发生在窗口显示之前时isVisible()恒为false，会跳过hide()导致控件未打上显式隐藏标记，
     // 窗口显示后该控件将携带旧几何残留显示
     for (QWidget* w : sa_as_const(showWidgets)) {
-        if (w->isHidden())
+        if (w->isHidden()) {
+#if SARibbonPanelLayout_DEBUG_PRINT
+            // 真实的hidden->show迁移会触发QWidgetPrivate::setVisible->updateGeometry_helper(true)
+            // ->同步invalidate父布局(本布局)并触发activate重入，这是循环的燃料
+            qDebug() << "[seq" << ++s_p_debug_seq << "]     show(" << w->metaObject()->className() << ",\""
+                     << w->objectName() << "\") " << w;
+#endif
             w->show();
+        }
     }
     for (QWidget* w : sa_as_const(hideWidgets)) {
-        if (!w->isHidden())
+        if (!w->isHidden()) {
+#if SARibbonPanelLayout_DEBUG_PRINT
+            qDebug() << "[seq" << ++s_p_debug_seq << "]     hide(" << w->metaObject()->className() << ",\""
+                     << w->objectName() << "\") " << w;
+#endif
             w->hide();
+        }
     }
 
     // 布局label
@@ -708,6 +759,16 @@ SARibbonPanelItem* SARibbonPanelLayout::createItem(QAction* action, SARibbonPane
         // 根据QAction的属性设置按钮的大小
 
         QObject::connect(button, &SARibbonToolButton::triggered, panel, &SARibbonPanel::actionTriggered);
+        // automation 标识同步（issue #121）：action 有 objectName 则继承，否则以 action 文本兜底；
+        // 用户在按钮上手工设置的名字仅在 action 两个来源都为空时保留
+        if (!action->objectName().isEmpty()) {
+            button->setObjectName(action->objectName());
+        } else if (!action->text().isEmpty()) {
+            button->setObjectName(action->text());
+        }
+        if (button->accessibleName().isEmpty() && !action->text().isEmpty()) {
+            button->setAccessibleName(action->text());
+        }
         widget = button;
     }
     // 这时总会有widget
@@ -760,6 +821,12 @@ void SARibbonPanelLayout::updateGeomArray(const QRect& setrect)
     const int largeHeight = qMax(height - mag.bottom() - mag.top() - titleH - titleSpace, 2);  // 大按钮高度不小于2
 
     mLargeHeight = largeHeight;
+    // sizeHint缓存和大按钮高度绑定：高度变化（panel首次获得真实几何、调整category高度或
+    // panel标题高度等）时必须丢弃缓存，否则按钮宽度会一直沿用旧高度算出来的结果
+    if (largeHeight != mButtonSizeHintCacheLargeHeight) {
+        mButtonSizeHintCache.clear();
+        mButtonSizeHintCacheLargeHeight = largeHeight;
+    }
     // 计算smallHeight的高度
     const int smallHeight = qMax((largeHeight - (rowCount - 1) * spacingRow) / rowCount, 1);
     // Medium行的y位置
@@ -1149,6 +1216,7 @@ void SARibbonPanelLayout::recalcExpandGeomArray(const QRect& setrect)
         int oldColumnWidth      = 0;   ///< 原来的列宽
         int columnMaximumWidth  = -1;  ///< 列的最大宽度
         int columnExpandedWidth = 0;   ///< 扩展后列的宽度
+        int columnStretch       = 0;   ///< 列内可扩展 item 的 stretch factor 之和（0 表示参与均分）
         QList< SARibbonPanelItem* > expandItems;
     };
 
@@ -1172,6 +1240,10 @@ void SARibbonPanelLayout::recalcExpandGeomArray(const QRect& setrect)
         if (item->expandingDirections() & Qt::Horizontal) {
             ci.value().expandItems.append(item);
             item->isExpandItem = true;
+            // 汇总列内 SARibbonGallery 的拉伸系数（issue #47）；非 gallery 的可扩展 item 不计权重
+            if (SARibbonGallery* gallery = qobject_cast< SARibbonGallery* >(item->widget())) {
+                ci.value().columnStretch += gallery->stretchFactor();
+            }
         }
     }
 
@@ -1196,10 +1268,68 @@ void SARibbonPanelLayout::recalcExpandGeomArray(const QRect& setrect)
     }
 
     // Step 2: 计算扩展后的列宽（直接使用预收集的列宽信息，无需调用 columnWidthInfo()）
-    int oneColCanexpandWidth = expandwidth / columnExpandInfo.size();
+    // 权重分配（issue #47）：全部列的 columnStretch 为 0 时退回均分增量（保持既有行为）；
+    // 任一列设置过 stretchFactor 后，按"各列原宽之和 + 增量"的总宽度做加权分配，
+    // 使最终宽度比接近权重比；系数为 0 的列退回原宽（不参与增量分配），
+    // 整数除法的余数按权重从小到大依次补 1px，避免小权重被饿死
+    int totalStretch = 0;
+    int oldWidthSum  = 0;
+    for (const _columnExpandInfo& info : columnExpandInfo) {
+        totalStretch += info.columnStretch;
+        oldWidthSum += info.oldColumnWidth;
+    }
+
+    QMap< int, int > columnExpandWidth;  // columnIndex -> 本列分得的增量宽度
+    if (totalStretch <= 0) {
+        // 全部为 0：均分（既有行为），余数从第一列开始依次补 1px
+        const int colCount = columnExpandInfo.size();
+        const int base     = expandwidth / colCount;
+        int remainder      = expandwidth - base * colCount;
+        for (auto i = columnExpandInfo.begin(); i != columnExpandInfo.end(); ++i) {
+            columnExpandWidth[ i.key() ] = base + (remainder-- > 0 ? 1 : 0);
+        }
+    } else {
+        // 有权重：对总宽度（原宽之和 + 增量）加权，最终宽度 ≈ 总宽 × 权重/权重和
+        const int totalDistributable = oldWidthSum + expandwidth;
+        int remainder                = totalDistributable;
+        for (auto i = columnExpandInfo.begin(); i != columnExpandInfo.end(); ++i) {
+            const int target = (i.value().columnStretch > 0)
+                                   ? (i.value().columnStretch * totalDistributable) / totalStretch
+                                   : i.value().oldColumnWidth;  // 0 权重列保持原宽
+            const int share  = qBound(0, target - i.value().oldColumnWidth, expandwidth);
+            columnExpandWidth[ i.key() ] = share;
+            remainder -= (i.value().oldColumnWidth + share);
+        }
+        // 余数/超发补偿：按权重从小到大依次调整 1px，保证总宽不超发也不遗漏
+        QList< QPair< int, int > > sortable;  // (stretch, columnIndex)
+        for (auto i = columnExpandInfo.begin(); i != columnExpandInfo.end(); ++i) {
+            if (i.value().columnStretch > 0) {
+                sortable.append(qMakePair(i.value().columnStretch, i.key()));
+            }
+        }
+        std::sort(sortable.begin(), sortable.end());
+        int idx = 0;
+        while (remainder > 0 && !sortable.isEmpty()) {
+            ++columnExpandWidth[ sortable.at(idx % sortable.size()).second ];
+            --remainder;
+            ++idx;
+        }
+        idx = 0;
+        while (remainder < 0 && !sortable.isEmpty()) {
+            const int col = sortable.at(idx % sortable.size()).second;
+            if (columnExpandWidth[ col ] > 0) {
+                --columnExpandWidth[ col ];
+                ++remainder;
+            }
+            ++idx;
+            if (idx > 4 * sortable.size() * (expandwidth + oldWidthSum + 1)) {
+                break;  // 防御性退出，避免理论上的死循环
+            }
+        }
+    }
 
     for (QMap< int, _columnExpandInfo >::iterator i = columnExpandInfo.begin(); i != columnExpandInfo.end(); ++i) {
-        int colwidth = oneColCanexpandWidth + i.value().oldColumnWidth;  // 先扩展了
+        int colwidth = i.value().oldColumnWidth + columnExpandWidth[ i.key() ];  // 先扩展了
         if (colwidth >= i.value().columnMaximumWidth) {
             // 过最大宽度要求
             i.value().columnExpandedWidth = i.value().columnMaximumWidth;
@@ -1233,9 +1363,9 @@ void SARibbonPanelLayout::recalcExpandGeomArray(const QRect& setrect)
         }
     }
 #if SARibbonPanelLayout_DEBUG_PRINT
-    qDebug() << "| |-SARibbonPanelLayout recalcExpandGeomArray(" << setrect
-             << ") panelName=" << ribbonPanel()->panelName()  //
-             << ",expandwidth=" << expandwidth                //
+    qDebug() << "| |-SARibbonPanelLayout recalcExpandGeomArray(" << setrect << ") panelName="
+             << (ribbonPanel() ? ribbonPanel()->panelName() : QString())  //
+             << ",expandwidth=" << expandwidth                            //
         ;
 #endif
 }
@@ -1700,7 +1830,24 @@ int SARibbonPanelLayout::largeButtonHeight() const
 
 void SARibbonPanelLayout::setGeometry(const QRect& rect)
 {
+    // 重入守卫：doLayout()对子控件执行show()时，QWidgetPrivate::setVisible会同步invalidate
+    // 本布局并立即调用QLayout::activate()->doResize()->setGeometry()，形成重排循环。
+    // 此时当前几何即为目标几何，本次同步重入直接跳过；布局已标记为脏，Qt投递的
+    // LayoutRequest事件会再做一次干净的重排，无需在此同步执行
+    if (mInDoLayout) {
+#if SARibbonPanelLayout_DEBUG_PRINT
+        qWarning() << "[GUARD] SARibbonPanelLayout::setGeometry skipped re-entrant call from doLayout (panel="
+                   << parentWidget() << ", rect=" << rect << ")";
+#endif
+        return;
+    }
     QRect old = geometry();
+#if SARibbonPanelLayout_DEBUG_PRINT
+    QWidget* pw = parentWidget();
+    qDebug() << "[seq" << ++s_p_debug_seq << "] SARibbonPanelLayout::setGeometry(" << rect << ") [" << this << "] panel=" << pw
+             << " obj=\"" << (pw ? pw->objectName() : QString()) << "\", old=" << old << ", sameRect=" << (old == rect)
+             << ", dirty=" << mDirty;
+#endif
     // 几何未变且布局不脏时才可跳过；布局脏（如action显隐变化触发invalidate）时即使几何
     // 相同也必须重新执行doLayout，否则显隐/位置变化不会被应用
     if ((old == rect) && !isDirty()) {
@@ -1709,9 +1856,6 @@ void SARibbonPanelLayout::setGeometry(const QRect& rect)
     if (rect.width() <= 0 || rect.height() <= 0) {
         return;
     }
-#if SARibbonPanelLayout_DEBUG_PRINT
-    qDebug() << "| |----->SARibbonPanelLayout.setGeometry(" << rect << "(" << ribbonPanel()->panelName() << ")=======";
-#endif
     QLayout::setGeometry(rect);
     mDirty = false;
     updateGeomArray(rect);

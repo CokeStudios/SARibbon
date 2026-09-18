@@ -36,6 +36,7 @@ public:
     QBoxLayout* mButtonLayout { nullptr };
     QBoxLayout* mLayout { nullptr };
     bool mSingleRowMode { false };
+    int mStretchFactor { 0 };  ///< 面板内水平拉伸系数，0 表示沿用既有均分行为
     PrivateData(SARibbonGallery* p) : q_ptr(p)
     {
     }
@@ -641,6 +642,59 @@ void SARibbonGallery::setSingleRowMode(bool on)
 bool SARibbonGallery::isSingleRowMode() const
 {
     return d_ptr->mSingleRowMode;
+}
+
+/**
+ * \if ENGLISH
+ * @brief Get the horizontal stretch factor of the gallery inside its panel
+ * @return Stretch factor, 0 by default (0 keeps the legacy equal-share behavior)
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 获取图库在面板内的水平拉伸系数
+ * @return 拉伸系数，默认 0（0 表示沿用既有的均分行为）
+ * \endif
+ */
+int SARibbonGallery::stretchFactor() const
+{
+    return d_ptr->mStretchFactor;
+}
+
+/**
+ * \if ENGLISH
+ * @brief Set the horizontal stretch factor of the gallery inside its panel
+ * @param factor Stretch factor; 0 keeps the legacy equal-share behavior, >0 joins the weighted
+ *               distribution together with other galleries in the same panel (a factor of 0 makes
+ *               the gallery opt out of the extra width distribution)
+ * @details Changing the factor triggers updateGeometry() and invalidates the parent panel's layout
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 设置图库在面板内的水平拉伸系数
+ * @param factor 拉伸系数；0 保持既有均分行为，>0 时与同面板内其他图库按权重分配额外宽度
+ *               （系数为 0 的图库不参与额外宽度的分配）
+ * @details 系数变化会触发 updateGeometry() 并使父面板布局失效
+ * \endif
+ */
+void SARibbonGallery::setStretchFactor(int factor)
+{
+    if (factor < 0) {
+        factor = 0;
+    }
+    if (d_ptr->mStretchFactor == factor) {
+        return;
+    }
+    d_ptr->mStretchFactor = factor;
+    Q_EMIT stretchFactorChanged(factor);
+    updateGeometry();
+    // 请求父面板重新布局
+    if (QWidget* p = parentWidget()) {
+        if (QLayout* pl = p->layout()) {
+            pl->invalidate();
+        } else {
+            p->updateGeometry();
+        }
+    }
 }
 
 /**
