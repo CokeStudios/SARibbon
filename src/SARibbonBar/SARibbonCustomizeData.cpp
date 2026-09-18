@@ -1,5 +1,6 @@
 ﻿#include "SARibbonCustomizeData.h"
 #include "SARibbonBar.h"
+#include "SARibbonQuickAccessBar.h"
 #include <QDebug>
 #include <QObject>
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -257,6 +258,84 @@ bool SARibbonCustomizeData::apply(SARibbonBar* bar) const
             bar->showCategory(c);
         } else {
             bar->hideCategory(c);
+        }
+        return (true);
+    }
+
+    case AddQuickActionActionType: {
+        // 添加action到快速访问栏（issue #67）
+        if (nullptr == mActionsManagerPointer) {
+            return (false);
+        }
+        SARibbonQuickAccessBar* quickBar = bar->quickAccessBar();
+        if (nullptr == quickBar) {
+            return (false);
+        }
+        QAction* act = mActionsManagerPointer->action(keyValue);
+        if (nullptr == act) {
+            return (false);
+        }
+        SARibbonCustomizeData::setCanCustomize(act);
+        if (indexValue >= 0) {
+            // 插到指定位置：取当前该位置的 action 作为 before 锚点
+            const QList< QAction* > acts = quickBar->actions();
+            if (indexValue < acts.size()) {
+                quickBar->insertAction(acts.at(indexValue), act);
+            } else {
+                quickBar->addAction(act);
+            }
+        } else {
+            quickBar->addAction(act);
+        }
+        return (true);
+    }
+
+    case RemoveQuickActionActionType: {
+        // 从快速访问栏移除action（issue #67）
+        if (nullptr == mActionsManagerPointer) {
+            return (false);
+        }
+        SARibbonQuickAccessBar* quickBar = bar->quickAccessBar();
+        if (nullptr == quickBar) {
+            return (false);
+        }
+        QAction* act = mActionsManagerPointer->action(keyValue);
+        if (nullptr == act) {
+            return (false);
+        }
+        quickBar->removeAction(act);
+        return (true);
+    }
+
+    case ChangeQuickActionOrderActionType: {
+        // 改变快速访问栏action顺序（issue #67）
+        if (nullptr == mActionsManagerPointer) {
+            return (false);
+        }
+        SARibbonQuickAccessBar* quickBar = bar->quickAccessBar();
+        if (nullptr == quickBar) {
+            return (false);
+        }
+        QAction* act = mActionsManagerPointer->action(keyValue);
+        if (nullptr == act) {
+            return (false);
+        }
+        const QList< QAction* > acts = quickBar->actions();
+        const int currentIndex       = acts.indexOf(act);
+        if (currentIndex < 0) {
+            return (false);
+        }
+        const int toIndex = currentIndex + indexValue;
+        if (toIndex < 0 || toIndex >= acts.size()) {
+            return (false);
+        }
+        // QToolBar 的移动 = 移除后插入到目标位置之前
+        quickBar->removeAction(act);
+        const QList< QAction* > actsAfterRemove = quickBar->actions();
+        if (toIndex < actsAfterRemove.size()) {
+            quickBar->insertAction(actsAfterRemove.at(toIndex), act);
+        } else {
+            quickBar->addAction(act);
         }
         return (true);
     }
@@ -693,6 +772,83 @@ SARibbonCustomizeData SARibbonCustomizeData::makeVisibleCategoryCustomizeData(co
     }
     d.categoryObjNameValue = categoryobjName;
     d.indexValue           = isShow ? 1 : 0;
+    return (d);
+}
+
+/**
+ * \if ENGLISH
+ * @brief Create an AddQuickActionActionType SARibbonCustomizeData (add action to quick access bar)
+ * @param key Key name managed by SARibbonActionsManager
+ * @param mgr SARibbonActionsManager pointer
+ * @return SARibbonCustomizeData with AddQuickActionActionType
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 创建一个添加action到快速访问栏的SARibbonCustomizeData
+ * @param key SARibbonActionsManager管理的key名
+ * @param mgr SARibbonActionsManager指针
+ * @return 返回AddQuickActionActionType的SARibbonCustomizeData
+ * \endif
+ */
+SARibbonCustomizeData SARibbonCustomizeData::makeAddQuickActionCustomizeData(const QString& key,
+                                                                             SARibbonActionsManager* mgr)
+{
+    SARibbonCustomizeData d(AddQuickActionActionType, mgr);
+
+    d.keyValue   = key;
+    d.indexValue = -1;  // 默认追加到末尾
+    return (d);
+}
+
+/**
+ * \if ENGLISH
+ * @brief Create a RemoveQuickActionActionType SARibbonCustomizeData (remove action from quick access bar)
+ * @param key Key name managed by SARibbonActionsManager
+ * @param mgr SARibbonActionsManager pointer
+ * @return SARibbonCustomizeData with RemoveQuickActionActionType
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 创建一个从快速访问栏移除action的SARibbonCustomizeData
+ * @param key SARibbonActionsManager管理的key名
+ * @param mgr SARibbonActionsManager指针
+ * @return 返回RemoveQuickActionActionType的SARibbonCustomizeData
+ * \endif
+ */
+SARibbonCustomizeData SARibbonCustomizeData::makeRemoveQuickActionCustomizeData(const QString& key,
+                                                                                SARibbonActionsManager* mgr)
+{
+    SARibbonCustomizeData d(RemoveQuickActionActionType, mgr);
+
+    d.keyValue = key;
+    return (d);
+}
+
+/**
+ * \if ENGLISH
+ * @brief Create a ChangeQuickActionOrderActionType SARibbonCustomizeData (change action order in quick access bar)
+ * @param key Key name managed by SARibbonActionsManager
+ * @param mgr SARibbonActionsManager pointer
+ * @param moveindex Move position, -1 means move left one position, 1 means move right one position
+ * @return SARibbonCustomizeData with ChangeQuickActionOrderActionType
+ * \endif
+ *
+ * \if CHINESE
+ * @brief 创建一个改变快速访问栏action顺序的SARibbonCustomizeData
+ * @param key SARibbonActionsManager管理的key名
+ * @param mgr SARibbonActionsManager指针
+ * @param moveindex 移动位置，-1代表向左移动一个位置，1代表向右移动一个位置
+ * @return 返回ChangeQuickActionOrderActionType的SARibbonCustomizeData
+ * \endif
+ */
+SARibbonCustomizeData SARibbonCustomizeData::makeChangeQuickActionOrderCustomizeData(const QString& key,
+                                                                                     SARibbonActionsManager* mgr,
+                                                                                     int moveindex)
+{
+    SARibbonCustomizeData d(ChangeQuickActionOrderActionType, mgr);
+
+    d.keyValue   = key;
+    d.indexValue = moveindex;
     return (d);
 }
 

@@ -247,6 +247,10 @@ public:
     QSize calcSizeHint(const QStyleOptionToolButton& opt);
     QSize calcSmallButtonSizeHint(const QStyleOptionToolButton& opt);
     QSize calcLargeButtonSizeHint(const QStyleOptionToolButton& opt);
+    // 获取当前panel计算出来的大按钮高度，-1表示按钮不在SARibbonPanel中
+    int panelLargeButtonHeight() const;
+    // 判断缓存的sizeHint是否依然有效（其所依赖的大按钮高度没有变化）
+    bool isSizeHintUpToDate() const;
 
     // 计算文本绘制矩形的高度
     int calcTextDrawRectHeight(const QStyleOptionToolButton& opt) const;
@@ -280,6 +284,7 @@ public:
     QRect mDrawTextRect;                                                             ///< 记录text的绘制位置
     QRect mDrawIndicatorArrowRect;                                                   ///< 记录IndicatorArrow的绘制位置
     QSize mSizeHint;                                                                 ///< 保存计算好的sizehint
+    int mSizeHintBaseHeight { -1 };  ///< 计算mSizeHint时依据的大按钮高度，-1表示不依赖panel几何
     QSize mLargeButtonSizeHint { 32, 32 };                                           ///< 大按钮的尺寸
     bool mIsTextNeedWrap { false };                                                  ///< 标记文字是否需要换行显示
     SARibbonToolButton::LayoutFactor layoutFactor;                                   ///< 布局系数
@@ -349,7 +354,7 @@ void SARibbonToolButton::PrivateData::updateStatusByMousePosition(const QPoint& 
  */
 void SARibbonToolButton::PrivateData::updateDrawRect(const QStyleOptionToolButton& opt)
 {
-    if (!mSizeHint.isValid()) {
+    if (!mSizeHint.isValid() || !isSizeHintUpToDate()) {
         updateSizeHint(opt);
     }
     // 先更新IndicatorLen
@@ -777,6 +782,37 @@ bool SARibbonToolButton::PrivateData::hasIndicator(const QStyleOptionToolButton&
 }
 
 /**
+ * @brief 获取当前panel计算出来的大按钮高度
+ * @return 按钮所在panel的大按钮高度，不在panel中时返回-1
+ */
+int SARibbonToolButton::PrivateData::panelLargeButtonHeight() const
+{
+    if (SARibbonPanel* panel = qobject_cast< SARibbonPanel* >(q_ptr->parent())) {
+        return panel->largeButtonHeight();
+    }
+    return (-1);
+}
+
+/**
+ * @brief 判断缓存的sizeHint是否依然有效
+ *
+ * 大按钮的宽高比（buttonMaximumAspectRatio）和换行判断都基于panel给出的大按钮高度，
+ * 因此panel高度变化后缓存必须失效，否则会一直沿用旧高度算出来的宽度。
+ * 典型场景：category在加入SARibbonBar之前就被填充完毕（此时panel还是顶层窗口的默认尺寸），
+ * 或者用户调整了category/panel标题的高度。
+ *
+ * @return 缓存仍然有效返回true
+ */
+bool SARibbonToolButton::PrivateData::isSizeHintUpToDate() const
+{
+    if (mSizeHintBaseHeight < 0) {
+        // 不依赖panel几何（小按钮，或不在panel中），无需校验
+        return true;
+    }
+    return (mSizeHintBaseHeight == panelLargeButtonHeight());
+}
+
+/**
  * @brief 计算sizehint
  *
  * 此函数非常关键，因为所有尺寸计算都是基于原始的rect来的
@@ -794,6 +830,7 @@ QSize SARibbonToolButton::PrivateData::calcSizeHint(const QStyleOptionToolButton
 QSize SARibbonToolButton::PrivateData::calcSmallButtonSizeHint(const QStyleOptionToolButton& opt)
 {
     int w = 0, h = 0;
+    mSizeHintBaseHeight = -1;  // 小按钮的尺寸不依赖panel几何
 
     switch (opt.toolButtonStyle) {
     case Qt::ToolButtonIconOnly: {
@@ -843,18 +880,25 @@ QSize SARibbonToolButton::PrivateData::calcLargeButtonSizeHint(const QStyleOptio
     int w = 0;
     int h = qRound(opt.fontMetrics.lineSpacing() * SARibbonToolButtonConstants::LARGE_BUTTON_HEIGHT_FACTOR);
     // 最小宽度，在panel里面的按钮，最小宽度要和icon适应；比例可通过largeButtonMinimumWidthRatio调整，
-    // 小于等于0时取消高度比例约束，仅以icon宽度作为下限，宽度由icon和文字内容决定
+    // 小于等于0时取消高度比例约束，仅以icon宽度作为下限，宽度由icon和文字内容决定。
+    // 注意：minW必须基于字体行高推算的h计算，不能基于SARibbonPanel::largeButtonHeight()：
+    // sizeHint可能在panel尚未获得真实几何时被查询（如隐藏category被QStackedLayout::sizeHint
+    // 遍历），此时largeButtonHeight()是任意值，而脏sizeHint会被按钮mSizeHint与面板
+    // mButtonSizeHintCache双层缓存固化，导致大按钮宽度异常收缩（v2.9.4回归缺陷）
     qreal minWRatio = layoutFactor.largeButtonMinimumWidthRatio;
     int minW        = 0;
-
-    if (SARibbonPanel* panel = qobject_cast< SARibbonPanel* >(q_ptr->parent())) {
-        // 对于建立在SARibbonPanel的基础上的大按钮，把高度设置为SARibbonPanel计算的大按钮高度
-        h = panel->largeButtonHeight();
-    }
     if (minWRatio > 0.0) {
         minW = qRound(h * minWRatio);
     } else {
         minW = mLargeButtonSizeHint.width() + (2 * mSpacing);
+    }
+
+    // 记录本次计算所依据的大按钮高度，panel高度变化后缓存的sizeHint必须失效，
+    // 否则宽高比和换行判断会一直沿用旧高度算出来的结果
+    mSizeHintBaseHeight = panelLargeButtonHeight();
+    if (mSizeHintBaseHeight >= 0) {
+        // 对于建立在SARibbonPanel的基础上的大按钮，把高度设置为SARibbonPanel计算的大按钮高度
+        h = mSizeHintBaseHeight;
     }
     int textHeight = calcTextDrawRectHeight(opt);
     // 估算字体的宽度作为宽度
@@ -1593,7 +1637,7 @@ QSize SARibbonToolButton::sizeHint() const
 #if SA_RIBBON_TOOLBUTTON_DEBUG_PRINT
     qDebug() << "| | |-SARibbonToolButton::sizeHint";
 #endif
-    if (d_ptr->mSizeHint.isValid()) {
+    if (d_ptr->mSizeHint.isValid() && d_ptr->isSizeHintUpToDate()) {
         return d_ptr->mSizeHint;
     }
     QStyleOptionToolButton opt;

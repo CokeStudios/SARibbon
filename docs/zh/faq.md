@@ -157,3 +157,37 @@ SARibbonBar_amalgamate
 
     !!! warning
         `Qt::AA_DontCreateNativeWidgetSiblings` 是 Qt 的全局属性，会影响所有 QWidget 的原生窗口创建行为。仅在确实需要嵌入原生 HWND 窗口时才设置此属性。
+
+---
+
+## 7、嵌入 Qt3DWindow 等原生渲染窗口时起始位置偏移
+
+通过 `QWidget::createWindowContainer(new Qt3DWindow)` 把 Qt3D 渲染窗口（或其他原生 QWindow，如 QQuickWidget 之外的 OpenGL 窗口）嵌入 `SARibbonMainWindow` 中心区时，窗口启动时嵌入容器的起始位置出现偏移。
+
+### 原因
+
+`createWindowContainer` 返回的容器是**原生子窗口**（内部持有独立的原生窗口句柄），它与无边框主窗口（`UseRibbonFrame` 模式）的组合有两个已知坑：
+
+1. **缺少 `Qt::AA_DontCreateNativeWidgetSiblings`**：Qt 默认会为原生窗口创建同级原生兄弟窗口来保证堆叠正确，这与无边框窗口（依赖整个客户区自绘）交互时会产生裁剪/偏移问题（同 [QWindowKit Issue #32](https://github.com/stdware/qwindowkit/issues/32)，见第 6 节第 3 条）。
+2. **旧版本 Qt 的 `createWindowContainer` 几何同步问题**：部分 Qt 5.12/5.14 版本在窗口首次显示时，原生子窗口的初始几何没有跟随容器布局同步，表现为向左偏移若干像素，窗口 resize 一次后恢复。
+
+在 Qt 5.15.16 + Windows 10 上按推荐用法实测：容器的全局位置与布局期望完全一致（偏移量恒等于布局自身的边距，与 DPI 无关），没有额外偏移。
+
+### 解决方法
+
+1. **在 `main` 函数最前面设置（QApplication 创建之前）**：
+
+    ```cpp
+    int main(int argc, char* argv[])
+    {
+        QGuiApplication::setAttribute(Qt::AA_DontCreateNativeWidgetSiblings);
+        QApplication a(argc, argv);
+        // ...
+    }
+    ```
+
+2. **使用 Qt 5.15 及以上版本**（建议 Qt 6）。旧版本的 `createWindowContainer` 几何同步问题已在新版本修复。
+
+3. **如仍出现偏移，先检查是否是布局边距**：`QVBoxLayout` 等布局默认有 9px 边距，`SARibbonMainWindow` 无边框模式还有 `setContentsMargins(2,0,2,0)` 的 2px 内容边距，这些是正常布局行为，不是窗口偏移。可用 `layout()->contentsMargins()` 与 `contentsMargins()` 分别确认。
+
+4. **复现与量化工具**：仓库提供了 `example/Qt3DWindowExample` 复现工程，启动后自动输出主窗口/中心区/容器的几何对照数据（左偏量、DPR、原生窗口几何），支持 `--dump` 参数（打印后自动退出）。如遇偏移，请携带该工程的 `qt3d-geometry.log` 日志提 issue。

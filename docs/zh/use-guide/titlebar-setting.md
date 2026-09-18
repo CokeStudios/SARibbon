@@ -170,3 +170,77 @@ MainWindow::MainWindow(QWidget* parent)
 
 !!! tip "提示"
     标题栏设置仅在宽松模式（Loose）下可见。在紧凑模式下，标题栏和 Tab 栏合并，标题栏背景色设置不会有明显效果，但文字颜色仍然生效。
+
+## 标题栏图标系统菜单
+
+无边框模式（`UseRibbonFrame`）下，标题栏左上角的程序图标点击或右键会弹出系统菜单：还原 / 移动 / 大小 / 最小化 / 最大化 / 关闭。
+
+- **移动（M）**：进入系统级键盘移动模式——点击后用方向键移动窗口，回车确认、Esc 取消（与 Windows 原生系统菜单一致）；
+- **大小（S）**：进入系统级键盘缩放模式——用方向键调整窗口尺寸，回车确认、Esc 取消；
+- 窗口处于最大化/全屏状态时点击移动或大小，会先还原为普通窗口再进入对应模式；
+- 以上两项在 Windows 上可用；其他平台菜单中明确置灰（不提供点了没反应的菜单项）。
+
+!!! note
+    该菜单仅在无边框模式（`UseRibbonFrame`）下可用——原生边框模式（`UseNativeFrame`）使用系统自带菜单，标题图标被隐藏。
+
+## 主窗口边框绘制
+
+无边框模式（`UseRibbonFrame`）下窗口与同色背景（例如同为白色的文档区或桌面）可能无法分辨边界。可开启可选的 1px 边框绘制：
+
+```cpp
+setFrameBorderEnabled(true);          // 开启（默认关闭，不影响既有外观）
+setFrameBorderColor(QColor(Qt::red)); // 可选：自定义颜色；传入无效 QColor() 则跟随主题
+```
+
+- **默认关闭**：不设置时窗口外观与旧版本完全一致；
+- **颜色取值顺序**：自定义 `frameBorderColor`（有效色）→ 当前主题调色板的 `border-color` 色板 → palette 窗口色加深的兜底；
+- **主题联动**：边框色跟随主题时，切换主题会自动重绘；
+- **可见范围**：左右边与底边完整可见（落在主窗口预留的内容边距区）；顶边由标题栏（ribbon）覆盖，视觉上由 ribbon 自身的边界呈现；
+- **QWK 路径差异**：启用 QWindowKit（`SARIBBON_USE_FRAMELESS_LIB=ON`）时窗口由 QWK 的原生 frame 机制处理，自绘边框可能被系统 frame 覆盖，建议该路径下依赖 QWK 的边框能力。
+
+运行 `example/MainWindowExample` 的 **other** 标签页 **style** 面板 "window frame border" 开关可实时验证。
+
+## 拖动标题栏贴边半屏 / 最大化
+
+无边框模式（`UseRibbonFrame`）下，拖动 ribbon 标题栏触发系统的贴边（Aero Snap）行为：
+
+- 拖到屏幕**左/右边缘** → 出现半屏预览，松手落地为左/右半屏；
+- 拖到屏幕**顶部** → 出现最大化预览，松手最大化；
+- 从贴边状态**拖离** → 还原为普通窗口；
+- 最大化状态下拖动标题栏会先还原再移动（与 Office / 浏览器一致）。
+
+标题栏上的系统按钮、快速访问工具栏、上下文页签、应用按钮、标题图标**不受影响**，仍然正常响应点击。
+
+### 两种边框模式的差异
+
+| 模式 | 贴边行为 |
+|------|---------|
+| `UseRibbonFrame`（默认无边框） | 由 SARibbon 把标题栏拖拽委托给系统原生消息（Windows），系统提供贴边/半屏/最大化预览；非 Windows 平台保持纯 Qt 拖拽行为（无贴边） |
+| `UseNativeFrame`（原生边框） | 系统原生边框自带完整 Snap 行为，无需配置 |
+
+### Win11 Snap Layout 弹出
+
+Windows 11 的 Snap Layout 弹出层（鼠标悬停最大化按钮出现的分屏布局选择）需要 QWindowKit 路径（`SARIBBON_USE_FRAMELESS_LIB=ON` 并启用 `SARIBBON_ENABLE_SNAPLAYOUT`）；默认路径只提供拖拽贴边，不提供悬停弹出层。
+
+## 窗口阴影
+
+无边框模式（`UseRibbonFrame`）默认没有阴影。可通过属性开启 DWM 系统阴影：
+
+```cpp
+setFrameShadowEnabled(true);  // Windows（非 QWK 路径）下生效
+```
+
+### 平台差异
+
+| 平台/路径 | 阴影行为 |
+|-----------|---------|
+| Windows（默认路径） | 开启后获得 DWM 系统阴影（实现：加 `WS_THICKFRAME` + `DwmExtendFrameIntoClientArea`，配套处理 `WM_NCCALCSIZE`/`WM_NCACTIVATE`，客户区仍铺满整窗） |
+| Windows（QWindowKit 路径） | QWK 自带阴影处理，`setFrameShadowEnabled` 为空操作 |
+| macOS | 系统自带阴影，无需设置 |
+| Linux | 无通用方案（依窗口管理器而定） |
+
+### 注意
+
+- **窗口最大化时系统不绘制阴影**，这是 Windows 行为，不是 bug；
+- 开启阴影后系统 resize 光标（窗口边缘的调整尺寸光标）同样由系统提供，与原有纯 Qt 缩放行为并存；
+- 运行 `example/MainWindowExample` 的 **other** 标签页 **style** 面板 "window frame shadow" 开关可实时验证。

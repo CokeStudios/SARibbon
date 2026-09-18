@@ -44,7 +44,10 @@ public:
 		ChangeActionOrderActionType,    ///< 改变action顺序的操作(9)
 		RenameCategoryActionType,       ///< 对category更名操作(10)
 		RenamePanelActionType,          ///< 对Panel更名操作(11)
-		VisibleCategoryActionType       ///< 对category执行隐藏/显示操作(12)
+		VisibleCategoryActionType,      ///< 对category执行隐藏/显示操作(12)
+		AddQuickActionActionType,       ///< 添加action到快速访问栏操作(13)
+		RemoveQuickActionActionType,    ///< 从快速访问栏移除action操作(14)
+		ChangeQuickActionOrderActionType  ///< 改变快速访问栏action顺序的操作(15)
 	};
 	// Default constructor
 	SARibbonCustomizeData();
@@ -117,6 +120,17 @@ public:
 
 	// Create VisibleCategoryActionType SARibbonCustomizeData
 	static SARibbonCustomizeData makeVisibleCategoryCustomizeData(const QString& categoryobjName, bool isShow);
+
+	// Create AddQuickActionActionType SARibbonCustomizeData (add action to quick access bar)
+	static SARibbonCustomizeData makeAddQuickActionCustomizeData(const QString& key, SARibbonActionsManager* mgr);
+
+	// Create RemoveQuickActionActionType SARibbonCustomizeData (remove action from quick access bar)
+	static SARibbonCustomizeData makeRemoveQuickActionCustomizeData(const QString& key, SARibbonActionsManager* mgr);
+
+	// Create ChangeQuickActionOrderActionType SARibbonCustomizeData (change action order in quick access bar)
+	static SARibbonCustomizeData makeChangeQuickActionOrderCustomizeData(const QString& key,
+																		SARibbonActionsManager* mgr,
+																		int moveindex);
 
 	// Check if customization is allowed for the object
 	static bool isCanCustomize(QObject* obj);

@@ -172,6 +172,7 @@ private:
     int mColumnCount { 0 };                       ///< 记录有多少列
     QSize mSizeHint;                              ///< sizeHint返回的尺寸
     QHash<QWidget*, QSize> mButtonSizeHintCache;  ///< 缓存按钮的sizeHint，避免重复计算
+    int mButtonSizeHintCacheLargeHeight { -1 };   ///< 缓存sizeHint时依据的大按钮高度，高度变化则缓存失效
     QSize mSmallToolButtonIconSize { 22, 22 };    ///< 记录小按钮图标尺寸
     QSize mLargeToolButtonIconSize { 32, 32 };    ///< 记录大按钮图标尺寸
     bool mDirty { true };                         ///< 用于标记是否需要刷新元素，参考QToolBarLayout源码
@@ -186,6 +187,7 @@ private:
     bool mEnableWordWrap { true };                ///< 是否允许文字换行
     qreal mButtonMaximumAspectRatio { 1.4 };      ///< 按钮的宽高比
     qreal mLargeButtonMinWidthRatio { 0.75 };     ///< 大按钮最小宽度比例（相对于高度）
+    bool mInDoLayout { false };                   ///< doLayout执行期间为true；子控件show()会让Qt同步activate本布局造成重入，用此标志跳过
 };
 
 #endif  // SARIBBONPANELLAYOUT_H

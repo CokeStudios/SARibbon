@@ -190,6 +190,51 @@ public:
         return (mCloseStretch * (3 * mWindowButtonWidth)) / t;
     }
 
+    /**
+     * \if ENGLISH
+     * @brief Recalculate the bar's own geometry and all internal elements
+     * @param mainWindow The main window being filtered
+     * @details Shared by the Resize / LayoutDirectionChange / ScreenChangeInternal branches of eventFilter.
+     *          resizeElement() must be called explicitly: on screen or DPI changes the window size may stay
+     *          unchanged, in which case setGeometry() with the same size does not fire a resizeEvent and the
+     *          internal buttons would keep stale geometry (issue #118)
+     * \endif
+     *
+     * \if CHINESE
+     * @brief 重算按钮栏自身几何与所有内部元素
+     * @param mainWindow 被过滤事件的主窗口
+     * @details 由 eventFilter 的 Resize / LayoutDirectionChange / ScreenChangeInternal 分支共用。
+     *          resizeElement() 必须显式调用：屏幕或 DPI 变化时窗口尺寸可能不变，
+     *          setGeometry() 尺寸相同不会触发 resizeEvent，内部按钮将保留旧几何（issue #118）
+     * \endif
+     */
+    void refreshGeometry(SARibbonMainWindow* mainWindow)
+    {
+        SARibbonSystemButtonBar* par = q_ptr;
+        int th = 25;
+        SARibbonBar* ribbonBar = mainWindow->ribbonBar();
+        if (ribbonBar) {
+            th = ribbonBar->titleBarHeight();
+        }
+        if (th != par->height()) {
+            par->setWindowTitleHeight(th);
+        }
+        QRect fr         = mainWindow->geometry();
+        QSize wgSizeHint = par->sizeHint();
+        if (SA::saIsRTL()) {
+            par->setGeometry(0, 0, wgSizeHint.width(), wgSizeHint.height());
+        } else {
+            par->setGeometry(fr.width() - wgSizeHint.width(), 0, wgSizeHint.width(), wgSizeHint.height());
+        }
+        // 把设置好的尺寸给 ribbonbar
+        if (ribbonBar) {
+            ribbonBar->setSystemButtonGroupSize(par->size());
+        }
+        // 显式重算内部按钮几何，不依赖 resizeEvent 的隐式触发
+        resizeElement(par->size());
+    }
+
+
     int maxButtonWidthHint() const
     {
         qreal t = mCloseStretch + mMaxStretch + mMinStretch;
@@ -571,26 +616,7 @@ bool SARibbonSystemButtonBar::eventFilter(QObject* obj, QEvent* event)
         // SARibbonMainWindow的事件
         switch (event->type()) {
         case QEvent::Resize: {
-            int th = 25;
-
-            SARibbonBar* ribbonBar = mainWindow->ribbonBar();
-            if (ribbonBar) {
-                th = ribbonBar->titleBarHeight();
-            }
-            if (th != height()) {
-                setWindowTitleHeight(th);
-            }
-            QRect fr         = mainWindow->geometry();
-            QSize wgSizeHint = sizeHint();
-            if (SA::saIsRTL()) {
-                setGeometry(0, 0, wgSizeHint.width(), wgSizeHint.height());
-            } else {
-                setGeometry(fr.width() - wgSizeHint.width(), 0, wgSizeHint.width(), wgSizeHint.height());
-            }
-            // 把设置好的尺寸给ribbonbar
-            if (ribbonBar) {
-                ribbonBar->setSystemButtonGroupSize(size());
-            }
+            d_ptr->refreshGeometry(mainWindow);
         } break;
         case QEvent::WindowStateChange: {
             setWindowStates(mainWindow->windowState());
@@ -601,40 +627,48 @@ bool SARibbonSystemButtonBar::eventFilter(QObject* obj, QEvent* event)
              * @brief Handle layout direction change (LTR/RTL) - recalculate position
              * @details When the application's layout direction changes, the system button bar
              * needs to reposition itself (left edge for RTL, right edge for LTR).
-             * This case replicates the Resize logic to ensure proper positioning.
              * Event is NOT consumed - it continues to propagate.
              * \endif
              *
              * \if CHINESE
              * @brief 处理布局方向变化 (从左到右/从右到左) - 重新计算位置
              * @details 当应用程序的布局方向改变时，系统按钮栏需要重新定位
-             * (RTL 时在左侧，LTR 时在右侧)。此 case 复制 Resize 逻辑以确保正确定位。
+             * (RTL 时在左侧，LTR 时在右侧)。
              * 事件不会被消费 - 它将继续传播。
              * \endif
              */
-            int th = 25;
-
-            SARibbonBar* ribbonBar = mainWindow->ribbonBar();
-            if (ribbonBar) {
-                th = ribbonBar->titleBarHeight();
-            }
-            if (th != height()) {
-                setWindowTitleHeight(th);
-            }
-            QRect fr         = mainWindow->geometry();
-            QSize wgSizeHint = sizeHint();
-            if (SA::saIsRTL()) {
-                setGeometry(0, 0, wgSizeHint.width(), wgSizeHint.height());
-            } else {
-                setGeometry(fr.width() - wgSizeHint.width(), 0, wgSizeHint.width(), wgSizeHint.height());
-            }
-            // 把设置好的尺寸给 ribbonbar
-            if (ribbonBar) {
-                ribbonBar->setSystemButtonGroupSize(size());
-            }
-            // 重新定位内部按钮
-            d_ptr->resizeElement(size());
+            d_ptr->refreshGeometry(mainWindow);
         } break;
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+        case QEvent::ScreenChangeInternal:
+#if QT_VERSION >= QT_VERSION_CHECK(6, 2, 0)
+        case QEvent::DevicePixelRatioChange:
+#endif
+        {
+            /**
+             * \if ENGLISH
+             * @brief Handle screen change / DPI change - recalculate position
+             * @details When the window is dragged to another screen or the screen's DPI scaling
+             * changes, the system button bar needs to recalculate its geometry. The window size
+             * may stay unchanged, so the internal elements are refreshed explicitly instead of
+             * relying on an implicit resizeEvent (issue #118).
+             * Qt delivers QEvent::ScreenChangeInternal recursively to the window and its children
+             * when the window's screen changes (QWidgetWindow::handleScreenChange).
+             * Event is NOT consumed - it continues to propagate.
+             * \endif
+             *
+             * \if CHINESE
+             * @brief 处理屏幕切换 / DPI 变化 - 重新计算位置
+             * @details 当窗口被拖到另一块屏幕或系统 DPI 缩放变化时，系统按钮栏需要重算几何。
+             * 此时窗口尺寸可能不变，因此显式刷新内部元素，而不依赖隐式的 resizeEvent（issue #118）。
+             * 窗口换屏时 Qt 会把 QEvent::ScreenChangeInternal 递归发送给窗口及其子控件
+             * （QWidgetWindow::handleScreenChange）。
+             * 事件不会被消费 - 它将继续传播。
+             * \endif
+             */
+            d_ptr->refreshGeometry(mainWindow);
+        } break;
+#endif
         default:
             break;
         }
