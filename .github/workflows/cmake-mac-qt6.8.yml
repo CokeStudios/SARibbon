@@ -29,7 +29,9 @@ jobs:
             cache-key-prefix: ${{ runner.os }}-Qt-Cache-${{ matrix.qt_version }}
             dir: ${{ github.workspace }}/Qt
             host: 'mac'
-            arch: 'clang_arm64'
+            # Qt's official macOS desktop packages are universal (x86_64/arm64),
+            # so the only available arch is clang_64, also on Apple Silicon runners.
+            arch: 'clang_64'
 
       - name: Configure CMake
         run: cmake -DCMAKE_BUILD_TYPE="${{env.BUILD_TYPE}}" -DBUILD_SHARED_LIBS=${{ matrix.shared }} -DSARIBBON_BUILD_EXAMPLES=OFF -DBUILD_TESTS=ON -B "${{github.workspace}}/build"
